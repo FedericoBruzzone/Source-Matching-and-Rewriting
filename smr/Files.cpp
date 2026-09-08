@@ -148,70 +148,63 @@ int loadPatFile(std::string &Filepath, Data &Data) {
   int BufferId = -1;
   int RewriteId = 0;
 
-  // Failed to load file: abort.
   if ((BufferId = loadFile(&File, Filepath)) < 0)
     return -1;
 
-  // Generate PAT file AST.
   pat::LexerBuffer Lexer(File.getMemoryBuffer(BufferId)->getBuffer(), Filepath);
   pat::Parser Parser(Lexer);
   auto Root = Parser.parse();
 
-  // Failed to parse PAT file: log error and return.
   if (!Root) {
     error(Msg::FAIL_PARSE_PAT, Filepath);
     return Msg::FAIL_PARSE_PAT;
   }
   Data.reserveRewrites(Root->size());
 
-  // Parse every compiled MLIR rewrite.
   for (auto &Rewrite : *Root) {
     std::string Pattern = Rewrite->getPattern().str();
     std::string Replacement = Rewrite->getReplacement().str();
     std::string Lang = Rewrite->getLang();
     RewriteId++;
 
-    // Rewrite is source code: lower to mlir.
+    // Compile ONLY the pattern upfront if it is source code.
     if (Lang != "mlir") {
-      Front.compile(Lang, Pattern);
-      Front.compile(Lang, Replacement);
+      if (Front.compile(Lang, Pattern) != 0) {
+        error(Msg::FAIL_COMPILE_SOURCE_FILE, Filepath);
+        return Msg::FAIL_COMPILE_SOURCE_FILE;
+      }
     }
 
     Front.getFrontend(Lang)->getOrLoadDialect(Data.getContext());
 
-    // Parse mlir rewrite.
+    // Parse pattern MLIR.
     auto ParsedPattern =
         mlir::parseSourceString<mlir::ModuleOp>(Pattern, Data.getContext());
-    auto ParsedReplacement =
-        mlir::parseSourceString<mlir::ModuleOp>(Replacement, Data.getContext());
 
-    // Failed to parse pattern or replacement: log error and fail.
-    if (!ParsedPattern || !ParsedReplacement) {
+    if (!ParsedPattern) {
       error(Msg::FAIL_PARSE_REWRITE, std::to_string(RewriteId));
       return Msg::FAIL_PARSE_REWRITE;
     }
 
-    // Rewrite was compiled: apply normalization passes.
+    // Preprocess pattern MLIR.
     if (Lang != "mlir") {
-      if (Front.preprocessPattern(Lang, ParsedPattern.get()) != 0 ||
-          Front.preprocessReplacement(Lang, ParsedReplacement.get()) != 0) {
+      if (Front.preprocessPattern(Lang, ParsedPattern.get()) != 0) {
         error(Msg::FAIL_PREPROC_REWRITE, std::to_string(RewriteId));
         return Msg::FAIL_PREPROC_REWRITE;
       }
     }
 
-    // Rewrite parsed and preprocessed: validate it.
-    if (frontend::Manager::validatePattern(ParsedPattern.get()) != 0 ||
-        frontend::Manager::validateReplacement(ParsedReplacement.get()) != 0) {
+    // Validate pattern.
+    if (frontend::Manager::validatePattern(ParsedPattern.get()) != 0) {
       error(Msg::INVALID_REWRITE, std::to_string(RewriteId));
       return Msg::INVALID_REWRITE;
     }
 
-    // Sucessfully parsed: add to Data.
-    Data.addRewrite(std::move(ParsedPattern), std::move(ParsedReplacement));
+    // Add pattern module and raw uncompiled replacement source code to Data.
+    Data.addRewrite(std::move(ParsedPattern), std::move(Replacement), std::move(Lang));
   }
 
-  // Should compile: generate a MLIR-only PAT file.
+  // If compilation mode is requested (-compile), store the compiled PAT file.
   if (cl::Compile) {
     auto DotIdx = Filepath.find_last_of('.');
     auto CompiledFilepath = Filepath.substr(0, DotIdx) + "-compiled.pat";

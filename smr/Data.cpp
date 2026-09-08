@@ -1,8 +1,12 @@
 #include "Data.hpp"
+#include "Frontend/Manager.hpp"
+#include "Logger/Logger.hpp"
+#include "Logger/Messages.hpp"
 #include "Match.hpp"
 #include "Rewrite.hpp"
 #include "Types.hpp"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/Parser/Parser.h"
 #include <algorithm>
 #include <iterator>
 #include <llvm/ADT/StringRef.h>
@@ -26,12 +30,80 @@ unsigned Data::addRewrite(OwningModuleRef &&Pattern,
                           OwningModuleRef &&Replacement) {
   this->Patterns.push_back(std::move(Pattern));
   this->Replacements.push_back(std::move(Replacement));
+  this->ReplacementSources.push_back("");
+  this->ReplacementLangs.push_back("mlir");
+  return Patterns.size() - 1;
+}
+
+unsigned Data::addRewrite(OwningModuleRef &&Pattern,
+                          std::string &&ReplacementCode,
+                          std::string &&Lang) {
+  this->Patterns.push_back(std::move(Pattern));
+  this->Replacements.push_back(nullptr); // Uncompiled initially
+  this->ReplacementSources.push_back(std::move(ReplacementCode));
+  this->ReplacementLangs.push_back(std::move(Lang));
   return Patterns.size() - 1;
 }
 
 unsigned Data::addPattern(OwningModuleRef &&Module) {
   Patterns.push_back(std::move(Module));
   return Patterns.size() - 1;
+}
+
+mlir::ModuleOp Data::getReplacement(int Idx) {
+  if (Idx < 0 || Idx >= static_cast<int>(Patterns.size()))
+    return nullptr;
+
+  // If already compiled, return the compiled module.
+  if (Idx < static_cast<int>(Replacements.size()) && Replacements[Idx])
+    return Replacements[Idx].get();
+
+  // Ensure replacement source exists.
+  if (Idx >= static_cast<int>(ReplacementSources.size()))
+    return nullptr;
+
+  frontend::Manager Front;
+  std::string Code = ReplacementSources[Idx];
+  std::string Lang = ReplacementLangs[Idx];
+
+  // Compile source code to MLIR string if necessary.
+  if (Lang != "mlir") {
+    if (Front.compile(Lang, Code) != 0) {
+      error(Msg::FAIL_COMPILE_SOURCE_FILE, "Replacement " + std::to_string(Idx));
+      return nullptr;
+    }
+  }
+
+  Front.getFrontend(Lang)->getOrLoadDialect(&Context);
+
+  // Parse MLIR string to ModuleOp.
+  auto ParsedReplacement =
+      mlir::parseSourceString<mlir::ModuleOp>(Code, &Context);
+
+  if (!ParsedReplacement) {
+    error(Msg::FAIL_PARSE_REWRITE, std::to_string(Idx));
+    return nullptr;
+  }
+
+  // Preprocess replacement if compiled from source code.
+  if (Lang != "mlir") {
+    if (Front.preprocessReplacement(Lang, ParsedReplacement.get()) != 0) {
+      error(Msg::FAIL_PREPROC_REWRITE, std::to_string(Idx));
+      return nullptr;
+    }
+  }
+
+  // Validate replacement module.
+  if (frontend::Manager::validateReplacement(ParsedReplacement.get()) != 0) {
+    error(Msg::INVALID_REWRITE, std::to_string(Idx));
+    return nullptr;
+  }
+
+  if (Idx >= static_cast<int>(Replacements.size()))
+    Replacements.resize(Idx + 1);
+
+  Replacements[Idx] = std::move(ParsedReplacement);
+  return Replacements[Idx].get();
 }
 
 mlir::Operation *Data::getPatternRoot(int Idx) {
@@ -90,6 +162,7 @@ std::vector<Rewrite> &Data::getRewrites() {
     auto TargetId = Match.getInputId();
     auto Input = getInput(Match.getInputId());
     auto Pattern = getPattern(Match.getPatternId());
+    // Triggers compilation of replacement only for matched pattern
     auto Replacement = getReplacement(Match.getPatternId());
     mlir::IRMapping Mapping;
     for (auto &Pair : Match.getMapping()) {
@@ -217,7 +290,11 @@ void Data::dumpRewritesCode() {
     llvm::outs() << "\n ----- Pattern " << i << " -----\n";
     Patterns[i]->dump();
     llvm::outs() << "\n ----- Replacement " << i << " -----\n";
-    Replacements[i]->dump();
+    if (i < Replacements.size() && Replacements[i]) {
+      Replacements[i]->dump();
+    } else if (i < ReplacementSources.size()) {
+      llvm::outs() << ReplacementSources[i] << "\n";
+    }
     llvm::outs() << "\n -----------------------\n";
   }
   llvm::outs() << "==================================\n";
