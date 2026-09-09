@@ -1,20 +1,20 @@
 # SMR
 
-**Source-based Matching and Rewriting (SMR)** is a tool designed for automated source-to-source pattern matching and code transformation in **C** and **Fortran 90**. Built on top of the MLIR framework, it used CIR and FIR to enable the detection of code idioms replacing them with high-performance implementations directly at the source level. SMR also enables another tool called [Pattern Genaration Language (PGL)](https://github.com/PGL-SMR/Pattern-Generation-Language) that allows the programmer to write high level patterns which are then compiled into a set of SMR patterns. This considerably simplifies pattern replacement desing.
+**Source-based Matching and Rewriting (SMR)** is a tool designed for automated source-to-source pattern matching and code transformation in **C** and **Fortran 90**. Built on top of the MLIR framework, it uses CIR and FIR to enable the detection of code idioms and replace them with high-performance implementations directly at the source level. SMR also enables another tool called [Pattern Generation Language (PGL)](https://github.com/PGL-SMR/Pattern-Generation-Language), which allows the programmer to write high-level patterns that are then compiled into a set of SMR patterns. This considerably simplifies pattern replacement design.
 
-In this page you can find the following usefull information:
+On this page, you can find the following useful information:
 
 - [Installation procedure for SMR](#Prerequisites--Installation)
 - [Usage example in C](#Usage)
 - [Usage example in F90](#Usage-with-Fortran)
-- [Related Tools and References](#Related-Tools--References)
+- [Related Tools and references](#Related-Tools--References)
 
 # Prerequisites & Installation
 
 
 ***The commands below work for Ubuntu 22.04 LTS.***
 
-> **Note:** A pre-configured **`Dockerfile`** is available in the root directory of this repository. You can use it to build and run the entire environment with all dependencies and LLVM 20 pre-installed. If you want to have your own installation and not use the docker follow the instructions below.
+> **Note:** A pre-configured **`Dockerfile`** is available in the root directory of this repository. You can use it to build and run the entire environment with all dependencies and LLVM 20 pre-installed. If you want to perform your own installation without using Docker, follow the instructions below.
 
 ### Install SMR dependencies:
 
