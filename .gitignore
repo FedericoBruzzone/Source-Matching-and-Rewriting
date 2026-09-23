@@ -6,3 +6,4 @@ env.sh
 .cache/
 compile_commands.json
 artifacts/
+.devcontainer/
