@@ -53,11 +53,12 @@ public:
   /// \brief Get input unique ID.
   [[nodiscard]] int getInputId() const { return InputId; };
 
-  /// \brief Get the mapping between pattern input arguments and matched input
+  /// \brief Get the mapping between pattern input arguments and matched input.
+  [[nodiscard]] const mlir::IRMapping &getMapping() const { return Mapping; };
   mlir::IRMapping &getMapping() { return Mapping; };
 
   /// \brief Get the target operation to be replaced.
-  mlir::Operation *getTarget() { return Target; };
+  [[nodiscard]] mlir::Operation *getTarget() const { return Target; };
 
   /// \brief Get the input code to be rewritten.
   [[nodiscard]] mlir::ModuleOp getInput() const { return Input; };
@@ -69,11 +70,12 @@ public:
   [[nodiscard]] mlir::ModuleOp getReplacement() const { return Replacement; };
 
   /// \brief Get the pattern wrapper function.
-  mlir::FunctionOpInterface getPatternFunc() {
-  for (auto Func : Pattern.getOps<mlir::FunctionOpInterface>()) {
+  mlir::FunctionOpInterface getPatternFunc() const {
+    mlir::ModuleOp Mod = Pattern;
+    for (auto Func : Mod.getOps<mlir::FunctionOpInterface>()) {
       if (!Func.isExternal()) return Func;
     }
-    return *Pattern.getOps<mlir::FunctionOpInterface>().begin();
+    return *Mod.getOps<mlir::FunctionOpInterface>().begin();
   };
 
   /// \brief Get the replacement wrapper function.
@@ -83,10 +85,11 @@ public:
   /// preferring the one with the same name.
   ///
   /// \return The wrapper function, or null if there is none.
-  mlir::FunctionOpInterface getReplacementFunc() {
+  mlir::FunctionOpInterface getReplacementFunc() const {
     auto PatternFunc = getPatternFunc();
     mlir::FunctionOpInterface Wrapper = nullptr;
-    for (auto Func : Replacement.getOps<mlir::FunctionOpInterface>()) {
+    mlir::ModuleOp Mod = Replacement;
+    for (auto Func : Mod.getOps<mlir::FunctionOpInterface>()) {
       if (Func.isExternal() ||
           Func.getArgumentTypes() != PatternFunc.getArgumentTypes())
         continue;
@@ -99,19 +102,19 @@ public:
   };
 
   /// \brief Get the pattern's input operands (wrapper function arguments).
-  llvm::SmallVector<mlir::Value, OPERANDS> getInputOperands() {
-  auto Arguments = getPatternFunc().getArguments();
-  llvm::SmallVector<mlir::Value, OPERANDS> Operands;
-  Operands.reserve(Arguments.size());
+  llvm::SmallVector<mlir::Value, OPERANDS> getInputOperands() const {
+    auto Arguments = getPatternFunc().getArguments();
+    llvm::SmallVector<mlir::Value, OPERANDS> Operands;
+    Operands.reserve(Arguments.size());
 
-  for (mlir::Value Arg : Arguments) {
-    if (Mapping.contains(Arg)) {
-      Operands.push_back(Mapping.lookup(Arg));
-    } else {
-      Operands.clear(); 
-      return Operands;
+    for (mlir::Value Arg : Arguments) {
+      if (Mapping.contains(Arg)) {
+        Operands.push_back(Mapping.lookup(Arg));
+      } else {
+        Operands.clear(); 
+        return Operands;
+      }
     }
-  }
-  return Operands;
-};
+    return Operands;
+  };
 };

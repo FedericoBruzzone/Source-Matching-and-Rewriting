@@ -8,15 +8,13 @@
 
 #pragma once
 
+#include <memory>
+#include <string>
 #include <vector>
 
-#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Support/Casting.h"
 
 namespace pat {
-
-using rewrite = std::pair<std::string, std::string>;
 
 /// Expression class for referencing a code block.
 class BlockAST {
@@ -37,36 +35,62 @@ public:
   [[nodiscard]] llvm::StringRef get() const { return Lang; }
 };
 
-/// This class represents a RootAST Rewrite specification.
-class RewriteAST {
-  std::unique_ptr<LangAST> Lang;         // Rewrite source code language
-  std::unique_ptr<BlockAST> Pattern;     // Pattern source code
-  std::unique_ptr<BlockAST> Replacement; // Replacement source code
+/// Expression class for referencing a rewrite condition expression.
+class ConditionAST {
+  std::string Condition;
 
 public:
-  /// Build a RootAST AST rewrite node
-  RewriteAST(std::unique_ptr<LangAST> Lang, std::unique_ptr<BlockAST> Pattern,
-             std::unique_ptr<BlockAST> Replacement)
-      : Lang(std::move(Lang)), Pattern(std::move(Pattern)),
-        Replacement(std::move(Replacement)) {}
-
-  /// Get rewrite language
-  [[nodiscard]] std::string getLang() const { return Lang->get().str(); }
-
-  /// Get rewrite pattern code block
-  BlockAST &getPattern() { return *Pattern; }
-
-  /// Get rewrite replacement code block
-  BlockAST &getReplacement() { return *Replacement; }
+  explicit ConditionAST(llvm::StringRef Condition) : Condition(Condition) {}
+  [[nodiscard]] llvm::StringRef get() const { return Condition; }
+  [[nodiscard]] std::string str() const { return get().str(); }
 };
 
-/// \brief PAT AST root in-memory representation.
-///
-/// \par Since the PAT file is essencially a list of rewrite specifications, the
-/// root is a node with N childs where N is the number os rewrites in the
-/// PAT file.
+/// Represents a single branch ($if, $elif, $else, or default '=').
+class RewriteBranchAST {
+  std::string Kind;                        // "$if", "$elif", "$else", or ""
+  std::unique_ptr<ConditionAST> Condition; // nullptr for $else or default =
+  std::unique_ptr<BlockAST> Replacement;
+
+public:
+  RewriteBranchAST(std::string Kind, std::unique_ptr<ConditionAST> Condition,
+                   std::unique_ptr<BlockAST> Replacement)
+      : Kind(std::move(Kind)), Condition(std::move(Condition)),
+        Replacement(std::move(Replacement)) {}
+
+  [[nodiscard]] const std::string &getKind() const { return Kind; }
+  [[nodiscard]] bool isElse() const { return Kind == "$else"; }
+  [[nodiscard]] bool hasCondition() const { return Condition != nullptr; }
+  ConditionAST *getCondition() { return Condition.get(); }
+  [[nodiscard]] std::string getConditionStr() const {
+    return Condition ? Condition->str() : "";
+  }
+  BlockAST &getReplacement() { return *Replacement; }
+  [[nodiscard]] std::string getReplacementStr() const {
+    return Replacement ? Replacement->str() : "";
+  }
+};
+
+/// This class represents a Pattern rewrite specification with conditional branches.
+class RewriteAST {
+  std::unique_ptr<LangAST> Lang;
+  std::unique_ptr<BlockAST> Pattern;
+  std::vector<std::unique_ptr<RewriteBranchAST>> Branches;
+
+public:
+  RewriteAST(std::unique_ptr<LangAST> Lang, std::unique_ptr<BlockAST> Pattern,
+             std::vector<std::unique_ptr<RewriteBranchAST>> Branches)
+      : Lang(std::move(Lang)), Pattern(std::move(Pattern)),
+        Branches(std::move(Branches)) {}
+
+  [[nodiscard]] std::string getLang() const { return Lang->get().str(); }
+  BlockAST &getPattern() { return *Pattern; }
+  std::vector<std::unique_ptr<RewriteBranchAST>> &getBranches() {
+    return Branches;
+  }
+};
+
+/// PAT AST root in-memory representation.
 class RootAST {
-  /// List of rewrite that constitute the PAT file
   std::unique_ptr<std::vector<std::unique_ptr<RewriteAST>>> Rewrites;
 
 public:
@@ -74,18 +98,14 @@ public:
       std::unique_ptr<std::vector<std::unique_ptr<RewriteAST>>> Rewrites)
       : Rewrites(std::move(Rewrites)) {}
 
-  /// Get list of rewrites in the PAT file
   std::vector<std::unique_ptr<RewriteAST>> &getRewrites() { return *Rewrites; }
 
-  /// Returns number of rewrites in the parsed PAT file
   [[nodiscard]] unsigned size() const { return Rewrites->size(); }
 
-  /// Acess rewrites by their respective index
   std::unique_ptr<RewriteAST> &operator[](int Index) {
     return Rewrites->at(Index);
   }
 
-  /// PAT file rewrite iterators
   auto begin() -> decltype(Rewrites->begin()) { return Rewrites->begin(); }
   auto end() -> decltype(Rewrites->end()) { return Rewrites->end(); }
 };

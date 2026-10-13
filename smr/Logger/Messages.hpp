@@ -48,6 +48,7 @@ enum Msg {
   OVERLAPPING_MATCHES,
   OVERLAPPING_ABORT,
   NESTED_MATCHES,
+  CONDITION_EVAL_FAIL
 };
 
 struct Message {
@@ -108,4 +109,5 @@ const std::array<Message, 64> Messages = {{
     {OVERLAPPING_ABORT, "Rewrite aborted: no code was optimized."},
     {NESTED_MATCHES, "Nested matches: rewrites {0} and {1} have nested "
                      "targets. Only one will be applied."},
+    {CONDITION_EVAL_FAIL, "Condition evaluation failed for pattern {0}."}
 }};

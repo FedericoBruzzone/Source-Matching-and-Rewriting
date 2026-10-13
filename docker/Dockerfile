@@ -44,7 +44,7 @@ RUN cmake -G Ninja -S ./llvm -B ./build \
  -DCMAKE_CXX_FLAGS="-Wno-error=deprecated-declarations -Wno-deprecated-declarations" \
  -DLLVM_ENABLE_RUNTIMES="compiler-rt;flang-rt"
 
-RUN ninja -j1 -C ./build install
+RUN ninja -j2 -C ./build install
 
 # Use flang-new as the default flang.
 RUN ln -s ${LLVM_INST_DIR}/bin/flang-new ${LLVM_INST_DIR}/bin/flang
