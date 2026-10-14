@@ -3,6 +3,7 @@
 #include "Frontend/Manager.hpp"
 #include "Logger/Logger.hpp"
 #include "Logger/Messages.hpp"
+#include "Optimization/Manager.hpp"
 #include "Match.hpp"
 #include "Rewrite.hpp"
 #include "Types.hpp"
@@ -80,6 +81,11 @@ mlir::ModuleOp Data::getReplacement(int PatternIdx, int BranchIdx) {
   if (frontend::Manager::validateReplacement(ParsedReplacement.get()) != 0) {
     error(Msg::INVALID_REWRITE, std::to_string(PatternIdx));
     return nullptr;
+  }
+
+  // Apply optimizations to the replacement module if specified.
+  if (!Branch.Optimizations.empty()) {
+    optimization::Manager::run(ParsedReplacement.get(), Branch.Optimizations);
   }
 
   if (BranchIdx >= static_cast<int>(CompiledReplacements[PatternIdx].size()))

@@ -7,12 +7,13 @@
 
 #pragma once
 
+#include <unordered_map>
+#include "AST.hpp"
+#include "Lexer.hpp"
+#include "Optimization/Optimization.hpp"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/raw_ostream.h"
-
-#include "AST.hpp"
-#include "Lexer.hpp"
 
 namespace pat {
 
@@ -26,12 +27,13 @@ public:
   std::unique_ptr<RootAST> parse();
 
 private:
-  Lexer &Lexer; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+  Lexer &Lexer;
 
-  /// Parse block extension: a string with the file forma specific to the
-  /// language contained within the block.
-  ///
-  /// lang ::= string
+  /// Tabela de símbolos para variáveis de otimização ($var_name = [...])
+  std::unordered_map<std::string, std::vector<optimization::OptimizationSpec>> OptVars;
+  std::vector<optimization::OptimizationSpec> GlobalOpts;
+
+  bool parseOptVarDefinition();
   std::unique_ptr<LangAST> parseLang();
 
   /// Parse a block: a string warpped in curly braces with any characters
@@ -49,15 +51,11 @@ private:
   ///
   /// rewrite ::= if (any_string)= 
   std::unique_ptr<ConditionAST> parseCondition();
+  std::optional<std::vector<optimization::OptimizationSpec>> parseOptimizations();
 
-  /// \brief Informs about parsing erros with contextual information.
-  ///
-  /// \param Expected Expected token for correct parsing.
-  /// \param Context Message with contextual information.
-  ///
-  /// \returns null pointer.
   template <typename R, typename T, typename U = const char *>
   std::unique_ptr<R> parseError(T &&Expected, U &&Context = "");
+  void parseOptimizationError(llvm::StringRef OptName);
 };
 
 } // namespace pat

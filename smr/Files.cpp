@@ -178,6 +178,16 @@ int loadPatFile(std::string &Filepath, Data &Data) {
     error(Msg::FAIL_PARSE_PAT, Filepath);
     return Msg::FAIL_PARSE_PAT;
   }
+
+  // Register global optimizations from the PAT file into the Data object.
+  for (const auto &OptSpec : Root->getGlobalOptimizations()) {
+    if (!optimization::Optimization::isValid(OptSpec)) {
+      warn(Msg::UKN_FILE_TYPE, "Unknown global optimization directive: " +
+                                   std::string(optimization::Optimization::getName(OptSpec.Code)));
+    }
+  }
+  Data.setGlobalOptimizations(Root->getGlobalOptimizations());
+
   Data.reserveRewrites(Root->size());
 
   for (auto &Rewrite : *Root) {
@@ -220,7 +230,22 @@ int loadPatFile(std::string &Filepath, Data &Data) {
       Branch.Kind = BranchAST->getKind();
       Branch.Condition = BranchAST->getConditionStr();
       Branch.ReplacementSource = BranchAST->getReplacementStr();
+
+      if (Branch.ReplacementSource.empty()) {
+        Branch.ReplacementSource = Pattern;
+      }
+
       Branch.IsElse = BranchAST->isElse();
+
+      // Validate optimizations for the branch and add them to the Branch object.
+      for (const auto &OptSpec : BranchAST->getOptimizations()) {
+        if (!optimization::Optimization::isValid(OptSpec)) {
+          warn(Msg::UKN_FILE_TYPE, "Unknown optimization directive: " +
+                                       std::string(optimization::Optimization::getName(OptSpec.Code)));
+        }
+        Branch.Optimizations.push_back(OptSpec);
+      }
+
       Branches.push_back(std::move(Branch));
     }
 

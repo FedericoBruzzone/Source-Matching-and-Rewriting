@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include "Optimization/Optimization.hpp"
 #include "llvm/ADT/StringRef.h"
 
 namespace pat {
@@ -50,12 +51,15 @@ class RewriteBranchAST {
   std::string Kind;                        // "$if", "$elif", "$else", or ""
   std::unique_ptr<ConditionAST> Condition; // nullptr for $else or default =
   std::unique_ptr<BlockAST> Replacement;
+  std::vector<optimization::OptimizationSpec> Optimizations;
 
 public:
   RewriteBranchAST(std::string Kind, std::unique_ptr<ConditionAST> Condition,
-                   std::unique_ptr<BlockAST> Replacement)
+                   std::unique_ptr<BlockAST> Replacement,
+                   std::vector<optimization::OptimizationSpec> Optimizations = {})
       : Kind(std::move(Kind)), Condition(std::move(Condition)),
-        Replacement(std::move(Replacement)) {}
+        Replacement(std::move(Replacement)),
+        Optimizations(std::move(Optimizations)) {}
 
   [[nodiscard]] const std::string &getKind() const { return Kind; }
   [[nodiscard]] bool isElse() const { return Kind == "$else"; }
@@ -68,9 +72,11 @@ public:
   [[nodiscard]] std::string getReplacementStr() const {
     return Replacement ? Replacement->str() : "";
   }
+  const std::vector<optimization::OptimizationSpec> &getOptimizations() const {
+    return Optimizations;
+  }
 };
 
-/// This class represents a Pattern rewrite specification with conditional branches.
 class RewriteAST {
   std::unique_ptr<LangAST> Lang;
   std::unique_ptr<BlockAST> Pattern;
@@ -89,14 +95,23 @@ public:
   }
 };
 
-/// PAT AST root in-memory representation.
 class RootAST {
   std::unique_ptr<std::vector<std::unique_ptr<RewriteAST>>> Rewrites;
+  std::vector<optimization::OptimizationSpec> GlobalOptimizations;
 
 public:
   explicit RootAST(
-      std::unique_ptr<std::vector<std::unique_ptr<RewriteAST>>> Rewrites)
-      : Rewrites(std::move(Rewrites)) {}
+      std::unique_ptr<std::vector<std::unique_ptr<RewriteAST>>> Rewrites,
+      std::vector<optimization::OptimizationSpec> GlobalOpts = {})
+      : Rewrites(std::move(Rewrites)), GlobalOptimizations(std::move(GlobalOpts)) {}
+
+  void setGlobalOptimizations(std::vector<optimization::OptimizationSpec> GlobalOpts) {
+    GlobalOptimizations = std::move(GlobalOpts);
+  }
+
+  const std::vector<optimization::OptimizationSpec> &getGlobalOptimizations() const {
+    return GlobalOptimizations;
+  }
 
   std::vector<std::unique_ptr<RewriteAST>> &getRewrites() { return *Rewrites; }
 

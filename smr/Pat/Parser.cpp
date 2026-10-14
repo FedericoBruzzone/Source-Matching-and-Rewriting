@@ -21,19 +21,149 @@
 namespace pat {
 
 std::unique_ptr<RootAST> Parser::parse() {
-  std::unique_ptr<RewriteAST> Rewrite;
   auto Rewrites = std::make_unique<std::vector<std::unique_ptr<RewriteAST>>>();
 
   Lexer.getNextToken();
 
   while (Lexer.getCurToken() != tok_eof) {
+    if (Lexer.getCurToken() == '$') {
+      if (!parseOptVarDefinition())
+        return nullptr;
+      continue;
+    }
+
+    std::unique_ptr<RewriteAST> Rewrite;
     if (!(Rewrite = parseRewrite()))
       return nullptr;
 
     Rewrites->push_back(std::move(Rewrite));
   }
 
-  return std::make_unique<RootAST>(std::move(Rewrites));
+  return std::make_unique<RootAST>(std::move(Rewrites), std::move(GlobalOpts));
+}
+
+bool Parser::parseOptVarDefinition() {
+  Lexer.consume(static_cast<Token>('$'));
+
+  std::string VarName;
+  Token Tok = Lexer.getCurToken();
+  while (isalnum(static_cast<char>(Tok)) || Tok == '_') {
+    VarName += static_cast<char>(Tok);
+    Tok = Lexer.getNextToken();
+  }
+
+  if (VarName.empty()) {
+    parseError<RewriteAST>("identifier", "after '$' in optimization variable definition");
+    return false;
+  }
+
+  if (Lexer.getCurToken() != tok_equal) {
+    parseError<RewriteAST>("=", "after variable name in optimization definition");
+    return false;
+  }
+  Lexer.consume(tok_equal);
+
+  auto OptSpecsOpt = parseOptimizations();
+  if (!OptSpecsOpt)
+    return false;
+
+  auto OptSpecs = std::move(*OptSpecsOpt);
+
+  if (VarName == "GLOBAL") {
+    GlobalOpts.insert(GlobalOpts.end(), OptSpecs.begin(), OptSpecs.end());
+  } else {
+    OptVars[VarName] = std::move(OptSpecs);
+  }
+
+  return true;
+}
+
+void Parser::parseOptimizationError(llvm::StringRef OptName) {
+  llvm::errs() << "Parse error (" << Lexer.getLastLocation().Line << ", "
+               << Lexer.getLastLocation().Col
+               << "): unknown or invalid optimization directive '$"
+               << OptName << "'\n";
+}
+
+std::optional<std::vector<optimization::OptimizationSpec>> Parser::parseOptimizations() {
+  std::vector<optimization::OptimizationSpec> Opts;
+  if (Lexer.getCurToken() != '[')
+    return Opts;
+
+  Lexer.consume(static_cast<Token>('['));
+
+  while (Lexer.getCurToken() != ']' && Lexer.getCurToken() != tok_eof) {
+    if (Lexer.getCurToken() == '$') {
+      Lexer.consume(static_cast<Token>('$'));
+    }
+
+    std::string Name;
+    Token Tok = Lexer.getCurToken();
+    while (isalnum(static_cast<char>(Tok)) || Tok == '_') {
+      Name += static_cast<char>(Tok);
+      Tok = Lexer.getNextToken();
+    }
+
+    if (Name.empty())
+      break;
+
+    if (OptVars.count(Name)) {
+      const auto &VarSpecs = OptVars[Name];
+      Opts.insert(Opts.end(), VarSpecs.begin(), VarSpecs.end());
+    } else {
+      optimization::Opt Code = optimization::Optimization::parseKind(Name);
+      if (!optimization::Optimization::isValid(Code)) {
+        parseOptimizationError(Name);
+        return std::nullopt;
+      }
+
+      optimization::OptimizationSpec Spec;
+      Spec.Code = Code;
+
+      if (Lexer.getCurToken() == '(') {
+        Lexer.consume(static_cast<Token>('('));
+        std::string CurrentArg;
+        int ParenLevel = 1;
+
+        while (ParenLevel > 0 && Lexer.getCurToken() != tok_eof) {
+          Tok = Lexer.getCurToken();
+          if (Tok == '(') ParenLevel++;
+          else if (Tok == ')') {
+            ParenLevel--;
+            if (ParenLevel == 0) break;
+          }
+
+          if (Tok == ',' && ParenLevel == 1) {
+            Spec.Args.push_back(llvm::StringRef(CurrentArg).trim().str());
+            CurrentArg.clear();
+          } else {
+            CurrentArg += static_cast<char>(Tok);
+          }
+          Tok = Lexer.getNextToken(true);
+        }
+
+        if (!CurrentArg.empty()) {
+          Spec.Args.push_back(llvm::StringRef(CurrentArg).trim().str());
+        }
+
+        if (Lexer.getCurToken() == ')') {
+          Lexer.consume(static_cast<Token>(')'));
+        }
+      }
+
+      Opts.push_back(Spec);
+    }
+
+    if (Lexer.getCurToken() == ',') {
+      Lexer.consume(static_cast<Token>(','));
+    }
+  }
+
+  if (Lexer.getCurToken() == ']') {
+    Lexer.consume(static_cast<Token>(']'));
+  }
+
+  return Opts;
 }
 
 std::unique_ptr<LangAST> Parser::parseLang() {
@@ -116,24 +246,37 @@ std::unique_ptr<RewriteAST> Parser::parseRewrite() {
 
   std::vector<std::unique_ptr<RewriteBranchAST>> Branches;
 
-  // Case 1: Standard unconditional rewrite: = { replacement }
+  auto getValidBlock = [&](std::unique_ptr<pat::BlockAST> Block) -> std::unique_ptr<pat::BlockAST> {
+    if (!Block) return nullptr;
+    if (Block->str().empty()) {
+      return std::make_unique<pat::BlockAST>(Pattern->str());
+    }
+    return Block;
+  };
+
   if (Lexer.getCurToken() == tok_equal) {
     Lexer.consume(tok_equal);
-    auto Replacement = parseBlock();
+    auto Replacement = getValidBlock(parseBlock());
     if (!Replacement) return nullptr;
 
+    std::vector<optimization::OptimizationSpec> Opts;
+    if (Lexer.getCurToken() == '[') {
+      auto OptSpecsOpt = parseOptimizations();
+      if (!OptSpecsOpt) return nullptr;
+      Opts = std::move(*OptSpecsOpt);
+    }
+
     Branches.push_back(std::make_unique<RewriteBranchAST>(
-        "", nullptr, std::move(Replacement)));
+        "", nullptr, std::move(Replacement), std::move(Opts)));
     return std::make_unique<RewriteAST>(std::move(Lang), std::move(Pattern),
                                         std::move(Branches));
   }
 
-  // Case 2: Conditional rewrite with $if, $elif, $else
   while (Lexer.getCurToken() == '$') {
     std::string Tag = "$";
     Token Tok = Lexer.getNextToken();
-    while (isalpha((char)Tok) != 0) {
-      Tag += (char)Tok;
+    while (isalpha(static_cast<char>(Tok)) != 0) {
+      Tag += static_cast<char>(Tok);
       Tok = Lexer.getNextToken();
     }
 
@@ -145,28 +288,51 @@ std::unique_ptr<RewriteAST> Parser::parseRewrite() {
         return parseError<RewriteAST>("=", "after condition expression");
       Lexer.consume(tok_equal);
 
-      auto Repl = parseBlock();
+      auto Repl = getValidBlock(parseBlock());
       if (!Repl) return nullptr;
 
+      std::vector<optimization::OptimizationSpec> Opts;
+      if (Lexer.getCurToken() == '[') {
+        auto OptSpecsOpt = parseOptimizations();
+        if (!OptSpecsOpt) return nullptr;
+        Opts = std::move(*OptSpecsOpt);
+      }
+
       Branches.push_back(std::make_unique<RewriteBranchAST>(
-          Tag, std::move(Cond), std::move(Repl)));
+          Tag, std::move(Cond), std::move(Repl), std::move(Opts)));
     } else if (Tag == "$else") {
       if (Lexer.getCurToken() != tok_equal)
         return parseError<RewriteAST>("=", "after $else directive");
       Lexer.consume(tok_equal);
 
-      auto Repl = parseBlock();
+      auto Repl = getValidBlock(parseBlock());
       if (!Repl) return nullptr;
 
+      std::vector<optimization::OptimizationSpec> Opts;
+      if (Lexer.getCurToken() == '[') {
+        auto OptSpecsOpt = parseOptimizations();
+        if (!OptSpecsOpt) return nullptr;
+        Opts = std::move(*OptSpecsOpt);
+      }
+
       Branches.push_back(std::make_unique<RewriteBranchAST>(
-          Tag, nullptr, std::move(Repl)));
+          Tag, nullptr, std::move(Repl), std::move(Opts)));
     } else {
       return parseError<RewriteAST>("$if, $elif, or $else", "for conditional branch");
     }
   }
 
   if (Branches.empty()) {
-    return parseError<RewriteAST>("'=' or '$if'", "to define rewrite replacement");
+    auto DefaultRepl = std::make_unique<pat::BlockAST>(Pattern->str());
+    std::vector<optimization::OptimizationSpec> Opts;
+    if (Lexer.getCurToken() == '[') {
+      auto OptSpecsOpt = parseOptimizations();
+      if (!OptSpecsOpt) return nullptr;
+      Opts = std::move(*OptSpecsOpt);
+    }
+
+    Branches.push_back(std::make_unique<RewriteBranchAST>(
+        "", nullptr, std::move(DefaultRepl), std::move(Opts)));
   }
 
   return std::make_unique<RewriteAST>(std::move(Lang), std::move(Pattern),

@@ -5,6 +5,7 @@ add_subdirectory(Automaton)
 add_subdirectory(CDG)
 add_subdirectory(DDG)
 add_subdirectory(Rewriter)
+add_subdirectory(Optimization)
 
 add_library(Common
 	STATIC
@@ -24,6 +25,7 @@ target_link_libraries(Common
 	CDG
 	DDG
 	Rewriter
+	Optimization
 )
 
 target_include_directories(Common

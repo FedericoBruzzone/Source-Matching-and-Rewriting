@@ -6,6 +6,7 @@
 #include "Files.hpp"
 #include "Logger/Logger.hpp"
 #include "Logger/Messages.hpp"
+#include "Optimization/Manager.hpp"
 #include "Rewriter/Rewriter.hpp"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -88,6 +89,13 @@ int main(int argc, char **argv) {
   std::set<int> OptimizedInputs;
   if (Rewriter.rewrite(Data.getRewrites(), OptimizedInputs) != 0)
     return EXIT_FAILURE;
+
+  const auto &GlobalOpts = Data.getGlobalOptimizations();
+  if (!GlobalOpts.empty()) {
+    for (auto InputModule : Data.getInputs()) {
+      optimization::Manager::run(InputModule, GlobalOpts);
+    }
+  }
 
   llvm::StringRef Output(cl::Output);
 
