@@ -91,6 +91,8 @@ git add artifacts
 git commit -m "Bump artifacts"
 ```
 
+`scripts/regress.sh [REF]` runs the smr built from `REF` (default `main`) and the one built from the working tree on every artifacts case, and fails if the generated MLIR differs. Run it inside the dev image after building `./build`.
+
 ### Verify Installation:
 
 ```bash
