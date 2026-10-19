@@ -65,13 +65,28 @@ ninja -C /opt/llvm-project/build install
 ### Clone and build SMR:
 
 ```bash
-git clone https://github.com/PGL-SMR/Source-Matching-and-Rewriting
+git clone --recurse-submodules https://github.com/PGL-SMR/Source-Matching-and-Rewriting
 cd Source-Matching-and-Rewriting
 mkdir -p ./build
 cmake -G Ninja  -B ./build \
   -DCMAKE_CXX_COMPILER=clang++-20 \
   -DCMAKE_C_COMPILER=clang-20
 ninja -C ./build smr
+```
+
+The `artifacts` submodule holds the [SMR-artifacts](https://github.com/PGL-SMR/SMR-artifacts) test suites. If you cloned without `--recurse-submodules`, or after pulling a commit that moves it, check it out at the pinned commit with:
+
+```bash
+git submodule sync --recursive
+git submodule update --init --recursive
+```
+
+To move it to the latest upstream commit, update it and commit the new pointer:
+
+```bash
+git submodule update --remote artifacts
+git add artifacts
+git commit -m "Bump artifacts"
 ```
 
 ### Verify Installation:
