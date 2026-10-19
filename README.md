@@ -98,6 +98,14 @@ ln -s $(pwd)/build/smr/smr /usr/local/bin/smr
 smr --help
 ```
 
+### Run the tests:
+
+```bash
+ninja -C ./build check-smr
+```
+
+The tests use `llvm-lit` and `FileCheck`, which are not installed with LLVM by default. CMake looks for them next to the LLVM tools and in `/opt/llvm-project/build/bin`. If they are elsewhere, pass `-DSMR_LIT=<path>` and `-DSMR_FILECHECK=<path>`.
+
 # Usage
 
 Suppose we have a C input file that calculates a GEMM matrix multiplication and we wish to rewrite it to use an optimized BLAS call (cblas_dgemm). We can do this with SMR as follows:

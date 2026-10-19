@@ -1,0 +1,4 @@
+RUN: smr --version | FileCheck %s
+
+CHECK: SMR version:
+CHECK: LLVM version:

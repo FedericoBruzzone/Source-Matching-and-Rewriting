@@ -1,0 +1,10 @@
+The output of mm_mul rewritten with pat2.pat must match clang -O0 on the original
+source. The timing line differs between runs, so it is left out.
+
+RUN: clang -O0 %S/extr_matmul_c.c_mm_mul.c -o %t.ref
+RUN: %t.ref | grep -v Tempo > %t.ref.out
+RUN: smr %S/extr_matmul_c.c_mm_mul.c %S/pat2.pat -o %t.mlir
+RUN: cir-translate --cir-to-llvmir %t.mlir -o %t.ll
+RUN: clang %t.ll -lopenblas -lpthread -lm -o %t.bin
+RUN: %t.bin | grep -v Tempo > %t.out
+RUN: diff %t.ref.out %t.out
