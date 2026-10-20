@@ -3,6 +3,10 @@
 // RUN: smr %s %S/Inputs/gemm.pat -o %t.mlir | FileCheck %s --check-prefix=LOG
 // RUN: FileCheck %s --input-file=%t.mlir
 //
+// smr-opt reads what smr writes.
+//
+// RUN: smr-opt %t.mlir | FileCheck %s
+//
 // The serialized pattern gives the same rewrite.
 //
 // RUN: smr %S/Inputs/gemm.pat --serialize=%t.opat

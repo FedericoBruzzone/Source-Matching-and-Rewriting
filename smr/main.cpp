@@ -93,7 +93,8 @@ int main(int argc, char **argv) {
   const auto &GlobalOpts = Data.getGlobalOptimizations();
   if (!GlobalOpts.empty()) {
     for (auto InputModule : Data.getInputs()) {
-      optimization::Manager::run(InputModule, GlobalOpts);
+      if (optimization::Manager::run(InputModule, GlobalOpts) != 0)
+        return EXIT_FAILURE;
     }
   }
 

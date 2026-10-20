@@ -21,5 +21,5 @@ configure_lit_site_cfg(
 set(LLVM_EXTERNAL_LIT ${SMR_LIT})
 add_lit_testsuite(check-smr "Running the SMR tests"
   ${CMAKE_CURRENT_BINARY_DIR}
-  DEPENDS smr
+  DEPENDS smr smr-opt
 )

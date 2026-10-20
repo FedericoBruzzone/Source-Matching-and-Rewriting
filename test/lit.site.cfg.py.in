@@ -2,6 +2,7 @@
 
 config.smr_obj_root = "@CMAKE_BINARY_DIR@"
 config.smr_tools_dir = "@CMAKE_BINARY_DIR@/smr"
+config.smr_opt_dir = "@CMAKE_BINARY_DIR@/smr-opt"
 config.llvm_tools_dir = "@LLVM_TOOLS_BINARY_DIR@"
 config.filecheck_dir = "@SMR_FILECHECK_DIR@"
 
