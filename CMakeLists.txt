@@ -82,6 +82,7 @@ include(CppCheck)
 
 # Add SMR source files.
 add_subdirectory(smr)
+add_subdirectory(smr-opt)
 
 # Add SMR tests (check-smr).
 add_subdirectory(test)

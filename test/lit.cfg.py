@@ -13,10 +13,11 @@ config.test_source_root = os.path.dirname(__file__)
 config.test_exec_root = os.path.join(config.smr_obj_root, "test")
 
 # smr compiles inputs by calling clang and flang, so the LLVM tools must be on
-# PATH too, after the freshly built smr.
+# PATH too, after the freshly built smr and smr-opt.
 config.environment["PATH"] = os.pathsep.join(
     [
         config.smr_tools_dir,
+        config.smr_opt_dir,
         config.llvm_tools_dir,
         config.filecheck_dir,
         config.environment["PATH"],
