@@ -8,4 +8,5 @@ target_link_libraries(smr-opt
 	MLIRDLTIDialect
 	MLIRLLVMDialect
 	MLIROptLib
+	Optimization
 )

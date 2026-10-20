@@ -1,3 +1,4 @@
+#include "Optimization/Passes.hpp"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -12,6 +13,7 @@ int main(int argc, char **argv) {
   Registry.insert<cir::CIRDialect, mlir::arith::ArithDialect,
                   mlir::func::FuncDialect, mlir::DLTIDialect,
                   mlir::LLVM::LLVMDialect>();
+  optimization::registerSmrPasses();
 
   return mlir::asMainReturnCode(
       mlir::MlirOptMain(argc, argv, "SMR optimization driver\n", Registry));
