@@ -50,7 +50,10 @@ enum Msg {
   NESTED_MATCHES,
   CONDITION_EVAL_FAIL,
   APPLYING_OPTIMIZATION,
-  GLOBAL_OPTIMIZATION
+  GLOBAL_OPTIMIZATION,
+  INVALID_OPTIMIZATION_ARG,
+  OPTIMIZATION_NOT_IMPLEMENTED,
+  OPTIMIZATION_FAILED
 };
 
 struct Message {
@@ -113,5 +116,11 @@ const std::array<Message, 64> Messages = {{
                      "targets. Only one will be applied."},
     {CONDITION_EVAL_FAIL, "Condition evaluation failed for pattern {0}."},
     {APPLYING_OPTIMIZATION, "Applying optimization: {0}"},
-    {GLOBAL_OPTIMIZATION, "Applying global optimization: {0}"}
+    {GLOBAL_OPTIMIZATION, "Applying global optimization: {0}"},
+    {INVALID_OPTIMIZATION_ARG,
+     "Invalid argument '{1}' for optimization '{0}': expected a positive "
+     "integer."},
+    {OPTIMIZATION_NOT_IMPLEMENTED,
+     "Optimization '{0}' is not implemented, skipping it."},
+    {OPTIMIZATION_FAILED, "Optimization pipeline failed."}
 }};

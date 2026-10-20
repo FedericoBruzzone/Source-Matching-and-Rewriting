@@ -84,9 +84,10 @@ mlir::ModuleOp Data::getReplacement(int PatternIdx, int BranchIdx) {
   }
 
   // Apply optimizations to the replacement module if specified.
-  if (!Branch.Optimizations.empty()) {
-    optimization::Manager::run(ParsedReplacement.get(), Branch.Optimizations);
-  }
+  if (!Branch.Optimizations.empty() &&
+      optimization::Manager::run(ParsedReplacement.get(),
+                                 Branch.Optimizations) != 0)
+    return nullptr;
 
   if (BranchIdx >= static_cast<int>(CompiledReplacements[PatternIdx].size()))
     CompiledReplacements[PatternIdx].resize(BranchIdx + 1);
@@ -180,6 +181,8 @@ std::vector<Rewrite> &Data::getRewrites() {
 
       if (CondPass) {
         auto Replacement = getReplacement(PatternId, static_cast<int>(BranchIdx));
+        if (!Replacement)
+          break;
         Rewrite FinalRewrite(Id, Target, TargetId, Input, Pattern, Replacement,
                              std::move(Mapping));
         Rewrites.push_back(std::move(FinalRewrite));
