@@ -7,12 +7,14 @@ void registerUnrollPass();
 void registerTilingPass();
 void registerDCEPass();
 void registerInlinePass();
+void registerCanonicalizePipeline();
 
 void registerSmrPasses() {
   registerUnrollPass();
   registerTilingPass();
   registerDCEPass();
   registerInlinePass();
+  registerCanonicalizePipeline();
 }
 
 } // namespace optimization
