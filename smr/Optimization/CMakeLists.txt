@@ -1,6 +1,7 @@
 add_library(Optimization STATIC 
 		Manager.cpp
 		Passes.cpp
+		Transforms/Canonicalize.cpp
 		Transforms/DCE.cpp
 		Transforms/Inline.cpp
 		Transforms/Tiling.cpp
@@ -12,6 +13,7 @@ target_link_libraries(Optimization
 		${LLVM_LIBS}
 		${MLIR_LIBS}
 		${CLANG_LIBS}
+		MLIRCIRTransforms
 		MLIRPass
 		Logger
 )

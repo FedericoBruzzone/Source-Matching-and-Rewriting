@@ -65,6 +65,9 @@ int Manager::run(mlir::ModuleOp Module,
     case INLINE:
       PM.addPass(createInlinePass());
       break;
+    case CANONICALIZE:
+      addCanonicalizePasses(PM);
+      break;
     case VECTORIZE:
     case UNKNOWN:
       warn(Msg::OPTIMIZATION_NOT_IMPLEMENTED, OptName);

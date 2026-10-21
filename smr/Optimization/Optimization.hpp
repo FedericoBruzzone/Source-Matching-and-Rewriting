@@ -16,7 +16,8 @@ enum Opt {
   TILING,
   VECTORIZE,
   INLINE,
-  DCE
+  DCE,
+  CANONICALIZE
 };
 
 /// Metadata structure for an optimization pass.
@@ -27,12 +28,13 @@ struct OptimizationInfo {
 };
 
 /// Table of valid optimization passes and their descriptions.
-const std::array<OptimizationInfo, 5> Optimizations = {{
+const std::array<OptimizationInfo, 6> Optimizations = {{
     {UNROLL, "unroll", "Loop unrolling optimization"},
     {TILING, "tiling", "Loop tiling optimization"},
     {VECTORIZE, "vectorize", "Vectorization optimization"},
     {INLINE, "inline", "Function inlining optimization"},
-    {DCE, "dce", "Dead code elimination optimization"}
+    {DCE, "dce", "Dead code elimination optimization"},
+    {CANONICALIZE, "canonicalize", "CIR canonicalization and simplification"}
 }};
 
 /// Structure storing the optimization pass code and its argument list.

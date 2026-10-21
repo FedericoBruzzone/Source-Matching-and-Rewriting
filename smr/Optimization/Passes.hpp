@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mlir/Pass/Pass.h"
+#include "mlir/Pass/PassManager.h"
 #include <memory>
 
 namespace optimization {
@@ -17,7 +18,11 @@ std::unique_ptr<mlir::Pass> createDCEPass();
 /// Inlines the calls to functions defined in the module.
 std::unique_ptr<mlir::Pass> createInlinePass();
 
+/// Adds CIR's own cleanups: cir-canonicalize, then cir-simplify.
+void addCanonicalizePasses(mlir::OpPassManager &PM);
+
 /// Registers the passes above as smr-opt flags (--smr-unroll, ...).
+/// addCanonicalizePasses is the --smr-canonicalize pipeline.
 void registerSmrPasses();
 
 } // namespace optimization
