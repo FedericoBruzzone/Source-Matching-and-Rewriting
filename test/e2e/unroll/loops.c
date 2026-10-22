@@ -75,6 +75,54 @@ static void reduction(int n) {
   b[0] = s;
 }
 
+static void le_bound(int n) {
+  for (int i = 0; i <= n; i++)
+    b[i] += 2;
+}
+
+static void long_iv(long n) {
+  for (long i = 0; i < n; i++)
+    b[i] = a[i] - 1;
+}
+
+static void unsigned_iv(unsigned n) {
+  for (unsigned i = 0; i < n; i++)
+    b[i] = a[i] ^ 5;
+}
+
+// The IV is read inside the if, in a nested region of the body.
+static void nested_reads(int n) {
+  for (int i = 0; i < n; i++) {
+    if (a[i] > 50)
+      b[i] = i;
+  }
+}
+
+// The loops below are not canonical and must be left as they are.
+static void decreasing(int n) {
+  for (int i = n - 1; i >= 0; i--)
+    b[i] += a[i];
+}
+
+static void iv_written(int n) {
+  for (int i = 0; i < n; i++)
+    if (a[i] % 3 == 0)
+      b[i++] = 1;
+}
+
+static void breaks(int n) {
+  for (int i = 0; i < n; i++) {
+    if (a[i] > 90)
+      break;
+    b[i] = 7;
+  }
+}
+
+static void bound_written(int n) {
+  for (int i = 0; i < n; i++)
+    b[n--] = i;
+}
+
 #define RUN(call)                                                              \
   do {                                                                         \
     reset();                                                                   \
@@ -90,5 +138,15 @@ int main(void) {
   RUN(step_two(N));
   RUN(nest(N));
   RUN(reduction(N));
+  RUN(le_bound(N - 1));
+  RUN(le_bound(1));
+  RUN(long_iv(N));
+  RUN(unsigned_iv(N));
+  RUN(unsigned_iv(2));
+  RUN(nested_reads(N));
+  RUN(decreasing(N));
+  RUN(iv_written(N));
+  RUN(breaks(N));
+  RUN(bound_written(N - 1));
   return 0;
 }
