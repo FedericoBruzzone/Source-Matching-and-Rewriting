@@ -1,5 +1,6 @@
-// --smr-dce erases operations nobody uses and the private functions nobody
-// references. Stores and calls are kept, and so is every public function.
+// --smr-dce erases operations nobody uses, the slots that are only written and
+// the private functions nobody references. Calls are kept, and so is every
+// public function.
 //
 // RUN: smr-opt --smr-dce %s | FileCheck %s
 
@@ -21,6 +22,37 @@ module {
     %4 = cir.binop(add, %2, %1) : !s32i
     cir.return %arg0 : !s32i
   }
+
+  // A slot that is only stored to goes with its stores, and the values that
+  // fed them follow. A slot that is read, one whose address is used otherwise,
+  // a volatile one and the slot of a parameter stay.
+  //
+  // CHECK-LABEL: cir.func @store_only(
+  // CHECK-NOT:     ["written"
+  // CHECK-DAG:     ["read", init]
+  // CHECK-DAG:     ["escapes", init]
+  // CHECK-DAG:     ["vol", init]
+  // CHECK-DAG:     ["param", init]
+  // CHECK-NOT:     cir.binop
+  // CHECK:         cir.return
+  cir.func @store_only(%arg0: !s32i, %arg1: !s32i) -> !s32i {
+    %param = cir.alloca !s32i, !cir.ptr<!s32i>, ["param", init] {alignment = 4 : i64}
+    %written = cir.alloca !s32i, !cir.ptr<!s32i>, ["written", init] {alignment = 4 : i64}
+    %read = cir.alloca !s32i, !cir.ptr<!s32i>, ["read", init] {alignment = 4 : i64}
+    %escapes = cir.alloca !s32i, !cir.ptr<!s32i>, ["escapes", init] {alignment = 4 : i64}
+    %vol = cir.alloca !s32i, !cir.ptr<!s32i>, ["vol", init] {alignment = 4 : i64}
+    cir.store %arg0, %param : !s32i, !cir.ptr<!s32i>
+    %sum = cir.binop(add, %arg0, %arg1) : !s32i
+    cir.store %sum, %written : !s32i, !cir.ptr<!s32i>
+    cir.store %arg1, %read : !s32i, !cir.ptr<!s32i>
+    cir.store %arg1, %escapes : !s32i, !cir.ptr<!s32i>
+    cir.store volatile %arg1, %vol : !s32i, !cir.ptr<!s32i>
+    %value = cir.load %read : !cir.ptr<!s32i>, !s32i
+    cir.call @take_address(%escapes) : (!cir.ptr<!s32i>) -> ()
+    cir.return %value : !s32i
+  }
+
+  cir.func private @take_address(!cir.ptr<!s32i>)
 
   // A call may have effects: it stays even when its result is unused.
   //
