@@ -38,7 +38,8 @@
 // RUN: %t.both > %t.both.out
 // RUN: diff %t.ref.out %t.both.out
 
-// TILED: cir.alloca !u64i, !cir.ptr<!u64i>, ["tile"]
+// TILED-DAG: cir.alloca !u64i, !cir.ptr<!u64i>, ["tile"]
+// TILED-DAG: cir.alloca !u64i, !cir.ptr<!u64i>, ["tile.j"]
 
 #include <stdio.h>
 
@@ -89,6 +90,43 @@ static void nest(int n) {
       m[i][j] = a[i] - a[j];
   for (int i = 0; i < n; i++)
     b[i] = m[i][n - 1 - i];
+}
+
+// The bounds differ, and the inner loop can be empty.
+static void rectangle(int n, int k) {
+  for (int i = 0; i < n; i++)
+    for (int j = 0; j < k; j++)
+      m[i][j] = a[i] * 3 + j;
+  for (int i = 0; i < n; i++)
+    b[i] = m[i][k > 0 ? k - 1 : 0];
+}
+
+// The inner bound depends on the outer IV: only the inner loop is transformed.
+static void triangle(int n) {
+  for (int i = 0; i < n; i++)
+    for (int j = 0; j < i; j++)
+      m[i][j] = a[i] + a[j];
+  for (int i = 0; i < n; i++)
+    b[i] = m[i][i / 2];
+}
+
+// A statement next to the inner loop: only the inner loop is transformed.
+static void imperfect(int n) {
+  for (int i = 0; i < n; i++) {
+    b[i] += 1;
+    for (int j = 0; j < n; j++)
+      m[i][j] = a[j] - i;
+  }
+  for (int i = 0; i < n; i++)
+    b[i] += m[i][n - 1];
+}
+
+// The two outer loops are tiled, the inner one is strip-mined.
+static void cube(int n) {
+  for (int i = 0; i < n; i++)
+    for (int j = 0; j < n; j++)
+      for (int k = 0; k < n; k++)
+        b[(i + j + k) % N] += (i ^ j) + k;
 }
 
 static void reduction(int n) {
@@ -162,6 +200,12 @@ int main(void) {
   RUN(remainder(0));
   RUN(step_two(N));
   RUN(nest(N));
+  RUN(rectangle(N, 11));
+  RUN(rectangle(5, 0));
+  RUN(rectangle(9, N));
+  RUN(triangle(N));
+  RUN(imperfect(N));
+  RUN(cube(37));
   RUN(reduction(N));
   RUN(le_bound(N - 1));
   RUN(le_bound(1));

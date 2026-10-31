@@ -71,27 +71,50 @@ module {
     cir.return
   }
 
-  // Only the innermost loop of a nest is tiled.
+  // A perfect nest is tiled in blocks. The point loops are the original ones,
+  // inside a loop over the tiles of j that runs at least once, inside a loop
+  // over the tiles of i.
   //
   // CHECK-LABEL: cir.func @nest(
+  // CHECK-DAG:     %[[COUNT_J:.*]] = cir.alloca !u64i, !cir.ptr<!u64i>, ["tile.j"]
+  // CHECK-DAG:     %[[COUNT_I:.*]] = cir.alloca !u64i, !cir.ptr<!u64i>, ["tile.i"]
+  // CHECK-DAG:     %[[START_J:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["tile.start.j"]
+  // CHECK-DAG:     %[[START_I:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["tile.start.i"]
+  // CHECK-DAG:     %[[I:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["i", init]
+  // CHECK-DAG:     %[[J:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["j", init]
+  //
   // CHECK:         cir.for : cond {
   // CHECK:         } body {
-  // CHECK:           cir.for : cond {
-  // CHECK:           } body {
-  // CHECK:             cir.store {{.*}}, %{{.*}} : !u64i
+  // CHECK:           cir.store {{.*}}, %[[START_I]]
+  // CHECK:           cir.store {{.*}}, %[[J]]
+  // CHECK:           cir.do {
+  // CHECK:             cir.store {{.*}}, %[[START_J]]
+  // CHECK:             cir.store {{.*}}, %[[I]]
+  // CHECK:             cir.store {{.*}}, %[[COUNT_I]]
+  //
   // CHECK:             cir.for : cond {
   // CHECK:               cir.select
   // CHECK:             } body {
+  // CHECK:               cir.store {{.*}}, %[[COUNT_J]]
+  // CHECK:               %[[TILE_J:.*]] = cir.load %[[START_J]]
+  // CHECK:               cir.store %[[TILE_J]], %[[J]]
+  // CHECK:               cir.for : cond {
+  // CHECK:                 cir.select
+  // CHECK:               } body {
+  // CHECK:                 cir.ptr_stride %arg0
+  // CHECK:               } step {
+  // CHECK:                 cir.store {{.*}}, %[[COUNT_J]]
+  // CHECK:               }
   // CHECK:             } step {
+  // CHECK:               cir.store {{.*}}, %[[COUNT_I]]
   // CHECK:             }
-  // CHECK:             cir.yield
-  // CHECK:           } step {
-  // CHECK-NEXT:        cir.yield
+  // CHECK:           } while {
+  // CHECK:             cir.condition
   // CHECK:           }
-  // CHECK:           cir.yield
   // CHECK:         } step {
-  // CHECK:           cir.unary(inc
-  // CHECK:         }
+  // CHECK-NEXT:      cir.yield
+  // CHECK-NEXT:    }
+  // CHECK-NOT:     cir.for
   // CHECK:         cir.return
   cir.func @nest(%arg0: !cir.ptr<!s32i>, %arg1: !s32i) {
     %0 = cir.alloca !s32i, !cir.ptr<!s32i>, ["i", init] {alignment = 4 : i64}
