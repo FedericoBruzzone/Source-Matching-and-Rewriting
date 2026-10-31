@@ -1,21 +1,44 @@
-// Unrolled loops compute what the original ones do. Every loop in this file is
-// unrolled, then the binary output is compared with clang -O0.
+// Unrolled and tiled loops compute what the original ones do. Every canonical
+// loop in this file is transformed, then the binary output is compared with
+// clang -O0.
 //
 // RUN: clang -O0 %s -o %t.ref
 // RUN: %t.ref > %t.ref.out
 // RUN: clang -fclangir -emit-cir %s -o %t.cir
 //
-// RUN: smr-opt --smr-unroll=factor=4 %t.cir -o %t.4.cir
-// RUN: cir-translate --cir-to-llvmir %t.4.cir -o %t.4.ll
-// RUN: clang %t.4.ll -o %t.4
-// RUN: %t.4 > %t.4.out
-// RUN: diff %t.ref.out %t.4.out
+// RUN: smr-opt --smr-unroll=factor=4 %t.cir -o %t.unroll4.cir
+// RUN: cir-translate --cir-to-llvmir %t.unroll4.cir -o %t.unroll4.ll
+// RUN: clang %t.unroll4.ll -o %t.unroll4
+// RUN: %t.unroll4 > %t.unroll4.out
+// RUN: diff %t.ref.out %t.unroll4.out
 //
-// RUN: smr-opt --smr-unroll=factor=3 %t.cir -o %t.3.cir
-// RUN: cir-translate --cir-to-llvmir %t.3.cir -o %t.3.ll
-// RUN: clang %t.3.ll -o %t.3
-// RUN: %t.3 > %t.3.out
-// RUN: diff %t.ref.out %t.3.out
+// RUN: smr-opt --smr-unroll=factor=3 %t.cir -o %t.unroll3.cir
+// RUN: cir-translate --cir-to-llvmir %t.unroll3.cir -o %t.unroll3.ll
+// RUN: clang %t.unroll3.ll -o %t.unroll3
+// RUN: %t.unroll3 > %t.unroll3.out
+// RUN: diff %t.ref.out %t.unroll3.out
+//
+// RUN: smr-opt --smr-tiling=size=4 %t.cir -o %t.tiling4.cir
+// RUN: FileCheck %s --input-file=%t.tiling4.cir --check-prefix=TILED
+// RUN: cir-translate --cir-to-llvmir %t.tiling4.cir -o %t.tiling4.ll
+// RUN: clang %t.tiling4.ll -o %t.tiling4
+// RUN: %t.tiling4 > %t.tiling4.out
+// RUN: diff %t.ref.out %t.tiling4.out
+//
+// RUN: smr-opt --smr-tiling=size=7 %t.cir -o %t.tiling7.cir
+// RUN: cir-translate --cir-to-llvmir %t.tiling7.cir -o %t.tiling7.ll
+// RUN: clang %t.tiling7.ll -o %t.tiling7
+// RUN: %t.tiling7 > %t.tiling7.out
+// RUN: diff %t.ref.out %t.tiling7.out
+//
+// Unrolling first leaves the main loop and its epilogue, both get tiled.
+// RUN: smr-opt --smr-unroll=factor=3 --smr-tiling=size=5 %t.cir -o %t.both.cir
+// RUN: cir-translate --cir-to-llvmir %t.both.cir -o %t.both.ll
+// RUN: clang %t.both.ll -o %t.both
+// RUN: %t.both > %t.both.out
+// RUN: diff %t.ref.out %t.both.out
+
+// TILED: cir.alloca !u64i, !cir.ptr<!u64i>, ["tile"]
 
 #include <stdio.h>
 
@@ -24,7 +47,7 @@
 int a[N], b[N];
 int m[N][N];
 
-// The harness uses while loops, which smr-unroll leaves alone.
+// The harness uses while loops, which the passes leave alone.
 static void reset(void) {
   int i = 0;
   while (i < N) {
@@ -59,7 +82,7 @@ static void step_two(int n) {
     b[i] = a[i] * 3;
 }
 
-// Only the inner loop is unrolled.
+// Only the inner loop is transformed.
 static void nest(int n) {
   for (int i = 0; i < n; i++)
     for (int j = 0; j < n; j++)
@@ -134,6 +157,8 @@ int main(void) {
   RUN(divisible());
   RUN(remainder(N));
   RUN(remainder(2));
+  RUN(remainder(4));
+  RUN(remainder(7));
   RUN(remainder(0));
   RUN(step_two(N));
   RUN(nest(N));
