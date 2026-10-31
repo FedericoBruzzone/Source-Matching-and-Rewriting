@@ -60,7 +60,7 @@ int Manager::run(mlir::ModuleOp Module,
       break;
     }
     case DCE:
-      PM.addPass(createDCEPass());
+      addDCEPasses(PM);
       break;
     case INLINE:
       PM.addPass(createInlinePass());
