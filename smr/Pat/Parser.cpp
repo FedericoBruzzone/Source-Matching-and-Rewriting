@@ -246,7 +246,7 @@ std::unique_ptr<ConditionAST> Parser::parseCondition() {
   return std::make_unique<ConditionAST>(std::move(CondStr));
 }
 
-/// Parses a rewrite: lang { pattern } [$if (...) = { replacement }] [$elif ...] [$else ...]
+/// Parses a rewrite: lang { pattern } [if (...) = { replacement }] [elif ...] [else ...]
 std::unique_ptr<RewriteAST> Parser::parseRewrite() {
   auto Lang = parseLang();
   std::unique_ptr<pat::BlockAST> Pattern;
@@ -282,15 +282,22 @@ std::unique_ptr<RewriteAST> Parser::parseRewrite() {
                                         std::move(Branches));
   }
 
-  while (Lexer.getCurToken() == '$') {
-    std::string Tag = "$";
-    Token Tok = Lexer.getNextToken();
+  // A word here is a branch only if it is one of the keywords: otherwise it
+  // starts the next rewrite.
+  auto AtBranch = [&]() {
+    std::string Word = Lexer.peekWord();
+    return Word == "if" || Word == "elif" || Word == "else";
+  };
+
+  while (AtBranch()) {
+    std::string Tag;
+    Token Tok = Lexer.getCurToken();
     while (isalpha(static_cast<char>(Tok)) != 0) {
       Tag += static_cast<char>(Tok);
       Tok = Lexer.getNextToken();
     }
 
-    if (Tag == "$if" || Tag == "$elif") {
+    if (Tag == "if" || Tag == "elif") {
       auto Cond = parseCondition();
       if (!Cond) return nullptr;
 
@@ -310,9 +317,9 @@ std::unique_ptr<RewriteAST> Parser::parseRewrite() {
 
       Branches.push_back(std::make_unique<RewriteBranchAST>(
           Tag, std::move(Cond), std::move(Repl), std::move(Opts)));
-    } else if (Tag == "$else") {
+    } else {
       if (Lexer.getCurToken() != tok_equal)
-        return parseError<RewriteAST>("=", "after $else directive");
+        return parseError<RewriteAST>("=", "after else");
       Lexer.consume(tok_equal);
 
       auto Repl = getValidBlock(parseBlock());
@@ -327,8 +334,6 @@ std::unique_ptr<RewriteAST> Parser::parseRewrite() {
 
       Branches.push_back(std::make_unique<RewriteBranchAST>(
           Tag, nullptr, std::move(Repl), std::move(Opts)));
-    } else {
-      return parseError<RewriteAST>("$if, $elif, or $else", "for conditional branch");
     }
   }
 

@@ -6,6 +6,16 @@
 //
 // OK: Applying optimization: unroll(2)
 //
+// The keywords of a conditional rewrite are not user defined either: if, elif,
+// else and is_const are written without a dollar. The old spelling is an error.
+//
+// RUN: smr %s %S/Inputs/syntax-branches.pat 2>&1 | FileCheck %s --check-prefix=BRANCHES
+// BRANCHES-NOT: Failed to parse PAT file
+// BRANCHES: Starting CDG matching
+//
+// RUN: smr %s %S/Inputs/syntax-dollar-if.pat 2>&1 | FileCheck %s --check-prefix=DOLLAR-IF
+// DOLLAR-IF: Failed to parse PAT file
+//
 // RUN: smr %s %S/Inputs/syntax-dollar-optimization.pat -o %t.a.mlir 2>&1 | FileCheck %s --check-prefix=DOLLAR
 // DOLLAR: undefined pipeline '$unroll'
 //
