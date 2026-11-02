@@ -1,4 +1,4 @@
-$GLOBAL = [$tiling(big)]
+$GLOBAL = [tiling(big)]
 
 c {
 void dot(int n, double *x, double *y, double out)

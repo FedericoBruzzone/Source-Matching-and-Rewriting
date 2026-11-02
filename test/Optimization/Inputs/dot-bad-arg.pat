@@ -5,4 +5,4 @@ void dot(int n, double *x, double *y, double out)
     out += x[i] * y[i];
   }
 }
-} [$unroll(0)]
+} [unroll(0)]

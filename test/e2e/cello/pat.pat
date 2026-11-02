@@ -1,8 +1,8 @@
-$GLOBAL = [$inline]
+$GLOBAL = [inline]
 
-$routine_opt_1 = [$unroll, $dce]
+$routine_opt_1 = [unroll, dce]
 
-$routine_opt_2 = [$tiling(32)]
+$routine_opt_2 = [tiling(32)]
 
 c {
 void ddot0(int N, double *x, double *y, double out)

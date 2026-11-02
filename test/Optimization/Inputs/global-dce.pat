@@ -1,4 +1,4 @@
-$GLOBAL = [$dce]
+$GLOBAL = [dce]
 
 c {
 void dot(int n, double *x, double *y, double out)
@@ -7,4 +7,4 @@ void dot(int n, double *x, double *y, double out)
     out += x[i] * y[i];
   }
 }
-} [$dce]
+} [dce]

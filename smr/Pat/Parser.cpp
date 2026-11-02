@@ -81,8 +81,14 @@ bool Parser::parseOptVarDefinition() {
 void Parser::parseOptimizationError(llvm::StringRef OptName) {
   llvm::errs() << "Parse error (" << Lexer.getLastLocation().Line << ", "
                << Lexer.getLastLocation().Col
-               << "): unknown or invalid optimization directive '$"
-               << OptName << "'\n";
+               << "): unknown optimization '" << OptName
+               << "' (pipelines start with '$', optimizations do not)\n";
+}
+
+void Parser::parsePipelineError(llvm::StringRef PipelineName) {
+  llvm::errs() << "Parse error (" << Lexer.getLastLocation().Line << ", "
+               << Lexer.getLastLocation().Col << "): undefined pipeline '$"
+               << PipelineName << "'\n";
 }
 
 std::optional<std::vector<optimization::OptimizationSpec>> Parser::parseOptimizations() {
@@ -93,9 +99,9 @@ std::optional<std::vector<optimization::OptimizationSpec>> Parser::parseOptimiza
   Lexer.consume(static_cast<Token>('['));
 
   while (Lexer.getCurToken() != ']' && Lexer.getCurToken() != tok_eof) {
-    if (Lexer.getCurToken() == '$') {
+    bool IsPipeline = Lexer.getCurToken() == '$';
+    if (IsPipeline)
       Lexer.consume(static_cast<Token>('$'));
-    }
 
     std::string Name;
     Token Tok = Lexer.getCurToken();
@@ -107,9 +113,13 @@ std::optional<std::vector<optimization::OptimizationSpec>> Parser::parseOptimiza
     if (Name.empty())
       break;
 
-    if (OptVars.count(Name)) {
-      const auto &VarSpecs = OptVars[Name];
-      Opts.insert(Opts.end(), VarSpecs.begin(), VarSpecs.end());
+    if (IsPipeline) {
+      auto Pipeline = OptVars.find(Name);
+      if (Pipeline == OptVars.end()) {
+        parsePipelineError(Name);
+        return std::nullopt;
+      }
+      Opts.insert(Opts.end(), Pipeline->second.begin(), Pipeline->second.end());
     } else {
       optimization::Opt Code = optimization::Optimization::parseKind(Name);
       if (!optimization::Optimization::isValid(Code)) {

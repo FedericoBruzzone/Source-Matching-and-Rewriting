@@ -52,11 +52,8 @@ struct OptimizationSpec {
 /// Utility class for lookup and validation of optimization passes.
 class Optimization {
 public:
-  /// Converts an optimization name string (e.g., "unroll" or "$unroll") to an Opt enum value.
+  /// Converts an optimization name string (e.g., "unroll") to an Opt enum value.
   static Opt parseKind(llvm::StringRef Name) {
-    if (Name.starts_with("$"))
-      Name = Name.drop_front();
-
     for (const auto &Entry : Optimizations) {
       if (Name.equals_insensitive(Entry.Name))
         return Entry.Code;

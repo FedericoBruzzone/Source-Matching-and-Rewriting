@@ -56,6 +56,7 @@ private:
   template <typename R, typename T, typename U = const char *>
   std::unique_ptr<R> parseError(T &&Expected, U &&Context = "");
   void parseOptimizationError(llvm::StringRef OptName);
+  void parsePipelineError(llvm::StringRef PipelineName);
 };
 
 } // namespace pat

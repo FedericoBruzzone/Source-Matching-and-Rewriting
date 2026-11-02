@@ -12,7 +12,7 @@ std::unique_ptr<mlir::Pass> createUnrollPass(unsigned Factor);
 /// Tiles the cir.for loops of a function with tiles of Size iterations.
 std::unique_ptr<mlir::Pass> createTilingPass(unsigned Size);
 
-/// Adds the passes of $dce.
+/// Adds the passes of dce.
 void addDCEPasses(mlir::OpPassManager &PM);
 
 /// Inlines the calls to functions defined in the module.
