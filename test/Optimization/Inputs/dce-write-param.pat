@@ -10,4 +10,4 @@ void dot(int n, double *x, double *y, double out)
 {
   out += x[0] + y[0];
 }
-} [$dce]
+} [dce]

@@ -58,6 +58,24 @@ public:
     return CurTok = getTok(GetSpace);
   }
 
+  /// The word that starts at the current token, without consuming it.
+  [[nodiscard]] std::string peekWord() const {
+    std::string Word;
+    auto IsWordChar = [](int C) { return isalnum(C) != 0 || C == '_'; };
+    if (!IsWordChar(CurTok))
+      return Word;
+    Word += static_cast<char>(CurTok);
+    if (!IsWordChar(LastChar))
+      return Word;
+    Word += static_cast<char>(LastChar);
+    for (char C : CurLineBuffer) {
+      if (!IsWordChar(C))
+        break;
+      Word += C;
+    }
+    return Word;
+  }
+
   /// Move to the next token in the stream, asserting on the current token
   /// matching the expectation.
   void consume(Token Tok) {

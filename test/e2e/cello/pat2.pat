@@ -1,4 +1,4 @@
-$routine_opt_1 = [$unroll(4), $dce]
+$routine_opt_1 = [unroll(4), dce]
 
 c {
 void ddot0(int N, double *x, double *y, double out)

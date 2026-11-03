@@ -115,8 +115,9 @@ bool ConditionEvaluator::eval(llvm::StringRef CondExpr) {
     return !eval(CondExpr.substr(1));
   }
 
-  // 5. Built-in functions ($is_const, etc.)
-  if (CondExpr.starts_with("$")) {
+  // 5. Built-in functions (is_const, etc.)
+  if (CondExpr.starts_with("is_const") &&
+      CondExpr.drop_front(strlen("is_const")).ltrim().starts_with("(")) {
     return evalBuiltin(CondExpr);
   }
 
@@ -142,7 +143,7 @@ bool ConditionEvaluator::eval(llvm::StringRef CondExpr) {
 }
 
 bool ConditionEvaluator::evalBuiltin(llvm::StringRef Expr) {
-  if (Expr.starts_with("$is_const")) {
+  if (Expr.starts_with("is_const")) {
     size_t OpenParen = Expr.find('(');
     size_t CloseParen = Expr.rfind(')');
     if (OpenParen != llvm::StringRef::npos && CloseParen != llvm::StringRef::npos &&
