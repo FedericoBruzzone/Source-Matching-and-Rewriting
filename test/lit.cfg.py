@@ -23,3 +23,8 @@ config.environment["PATH"] = os.pathsep.join(
         config.environment["PATH"],
     ]
 )
+
+# The compiler that sends every translation unit through smr.
+config.substitutions.append(
+    ("%smr_cc", os.path.join(config.test_source_root, "..", "scripts", "smr-cc"))
+)

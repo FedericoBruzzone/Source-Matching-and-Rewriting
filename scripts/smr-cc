@@ -1,0 +1,74 @@
+#!/bin/bash
+# A C compiler that sends every translation unit through SMR:
+#
+#   clang -E  ->  smr (SMR_PATS)  ->  cir-translate  ->  clang -O3 -c
+#
+# Use it as CC (or CMAKE_C_COMPILER) to build a program with the patterns in
+# SMR_PATS applied. With SMR_PATS empty nothing is rewritten, and the output is
+# what the CIR path gives without any pattern: the control of an evaluation.
+# Anything that is not "compile one .c file" goes to clang unchanged, and a
+# translation unit SMR cannot handle falls back to `clang -fclangir`.
+#
+#   SMR_PATS     .pat files, separated by spaces
+#   SMR_CC_LOG   file that gets one line per translation unit
+#   SMR_CC_CLANG the clang to use (default: clang)
+
+CLANG=${SMR_CC_CLANG:-clang}
+LOG=${SMR_CC_LOG:-/dev/null}
+
+ORIGINAL=("$@")
+frontend=()   # flags the preprocessor needs
+backend=()    # flags for the last clang
+source=
+output=
+compile=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -c) compile=1 ;;
+    -o) output=$2; shift ;;
+    -I|-D|-U|-include|-isystem|-idirafter) frontend+=("$1" "$2"); shift ;;
+    -I*|-D*|-U*|-std=*|-isystem*|-include*) frontend+=("$1") ;;
+    -MD|-MMD) frontend+=("$1") ;;
+    -MF|-MT|-MQ) frontend+=("$1" "$2"); shift ;;
+    -g*) ;;
+    -*) backend+=("$1") ;;
+    *.c) [ -n "$source" ] && source=MANY || source=$1 ;;
+    *) source=OTHER ;;
+  esac
+  shift
+done
+
+if [ "$compile" != 1 ] || [ -z "$source" ] || [ "$source" = MANY ] || [ "$source" = OTHER ]; then
+  exec "$CLANG" "${ORIGINAL[@]}"
+fi
+[ -n "$output" ] || output=$(basename "${source%.c}").o
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+name=$(basename "${source%.c}")
+
+fallback() {
+  echo "FALLBACK $source ($1)" >> "$LOG"
+  "$CLANG" -fclangir "${ORIGINAL[@]}"
+  exit $?
+}
+
+# Dependency flags only matter for the preprocessing, the rest of the flags
+# only for the last step.
+"$CLANG" -E -P "${frontend[@]}" "$source" -o "$work/$name.c" 2> "$work/err" ||
+  { cat "$work/err" >&2; exit 1; }
+
+# shellcheck disable=SC2086
+smr "$work/$name.c" $SMR_PATS -o "$work/$name.mlir" > "$work/smr.log" 2>&1 ||
+  fallback "smr failed"
+[ -s "$work/$name.mlir" ] || fallback "smr wrote nothing"
+
+cir-translate --cir-to-llvmir "$work/$name.mlir" -o "$work/$name.ll" 2> "$work/err" ||
+  fallback "cir-translate failed"
+
+"$CLANG" -Wno-unused-command-line-argument "${backend[@]}" -c "$work/$name.ll" \
+  -o "$output" 2> "$work/err" || fallback "clang failed on the LLVM IR"
+
+rewrites=$(grep -c "Applying rewrite" "$work/smr.log")
+echo "OK $source rewrites=$rewrites" >> "$LOG"
