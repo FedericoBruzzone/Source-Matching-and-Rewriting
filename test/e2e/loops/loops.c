@@ -38,8 +38,9 @@
 // RUN: %t.both > %t.both.out
 // RUN: diff %t.ref.out %t.both.out
 
-// TILED-DAG: cir.alloca !u64i, !cir.ptr<!u64i>, ["tile"]
-// TILED-DAG: cir.alloca !u64i, !cir.ptr<!u64i>, ["tile.j"]
+// TILED-DAG: cir.alloca !s32i, !cir.ptr<!s32i>, ["tile.start.i"]
+// TILED-DAG: cir.alloca !s32i, !cir.ptr<!s32i>, ["tile.start.j"]
+// TILED-DAG: cir.if
 
 #include <stdio.h>
 
@@ -184,6 +185,78 @@ static void bound_written(int n) {
     b[n--] = i;
 }
 
+// The IVs are declared at the top of the function, as in the gemm of darknet,
+// and a statement that only writes a local slot comes before the inner loop:
+// the two inner loops are tiled and the outer one runs in full inside the tiles.
+// Any of the loops can be empty.
+static void ikj(int ni, int nk, int nj) {
+  int i, j, k;
+  for (i = 0; i < ni; i++)
+    for (k = 0; k < nk; k++) {
+      int part = a[i] % 7;
+      for (j = 0; j < nj; j++)
+        m[i][j] += part * ((k + j) % 5);
+    }
+  for (i = 0; i < ni; i++)
+    b[i] += m[i][nj > 0 ? nj - 1 : 0];
+}
+
+static void ikj_declared(int ni, int nk, int nj) {
+  for (int i = 0; i < ni; i++)
+    for (int k = 0; k < nk; k++) {
+      int part = a[i] % 7;
+      for (int j = 0; j < nj; j++)
+        m[i][j] -= part * ((k * 3 + j) % 5);
+    }
+  for (int i = 0; i < ni; i++)
+    b[i] += m[i][nj > 0 ? nj - 1 : 0];
+}
+
+// A call before the inner loop cannot run again for every tile: not tiled.
+static int calls;
+static int bump(void) { return ++calls; }
+static void prelude_call(int n) {
+  for (int i = 0; i < n; i++)
+    for (int k = 0; k < n; k++) {
+      int t = bump();
+      for (int j = 0; j < n; j++)
+        m[i][j] += t % 3;
+    }
+  b[0] += calls;
+}
+
+static void le_nest(int n) {
+  for (int i = 0; i <= n; i++)
+    for (int j = 0; j <= n; j++)
+      m[i][j] = a[i] + j;
+  for (int i = 0; i <= n; i++)
+    b[i] += m[i][n];
+}
+
+static void long_nest(long n) {
+  for (long i = 0; i < n; i++)
+    for (long j = 0; j < n; j++)
+      m[i][j] = a[j] * 2 - i;
+  for (long i = 0; i < n; i++)
+    b[i] += m[i][n - 1];
+}
+
+static void unsigned_nest(unsigned n) {
+  for (unsigned i = 0; i < n; i++)
+    for (unsigned j = 0; j < n; j++)
+      m[i][j] = a[i] ^ j;
+  for (unsigned i = 0; i < n; i++)
+    b[i] += m[i][n - 1];
+}
+
+static void step_nest(int n) {
+  for (int i = 1; i < n; i += 2)
+    for (int j = 2; j < n; j += 3)
+      m[i][j] = a[i] + a[j];
+  for (int i = 1; i < n; i += 2)
+    b[i] += m[i][2];
+}
+
 #define RUN(call)                                                              \
   do {                                                                         \
     reset();                                                                   \
@@ -207,6 +280,21 @@ int main(void) {
   RUN(imperfect(N));
   RUN(cube(37));
   RUN(reduction(N));
+  RUN(ikj(N, N, N));
+  RUN(ikj(7, 0, 5));
+  RUN(ikj(0, 9, 9));
+  RUN(ikj(9, 9, 0));
+  RUN(ikj(13, 17, 19));
+  RUN(ikj(N, 2, N));
+  RUN(ikj_declared(N, N, N));
+  RUN(ikj_declared(5, 70, 3));
+  RUN(prelude_call(40));
+  RUN(le_nest(N - 1));
+  RUN(le_nest(0));
+  RUN(long_nest(N));
+  RUN(unsigned_nest(N));
+  RUN(unsigned_nest(0));
+  RUN(step_nest(N));
   RUN(le_bound(N - 1));
   RUN(le_bound(1));
   RUN(long_iv(N));
