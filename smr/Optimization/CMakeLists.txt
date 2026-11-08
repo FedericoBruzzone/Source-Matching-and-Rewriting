@@ -6,6 +6,7 @@ add_library(Optimization STATIC
 		Transforms/Canonicalize.cpp
 		Transforms/DCE.cpp
 		Transforms/Inline.cpp
+		Transforms/LICM.cpp
 		Transforms/Tiling.cpp
 		Transforms/Unroll.cpp
 )

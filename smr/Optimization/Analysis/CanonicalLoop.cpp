@@ -2,10 +2,7 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 namespace optimization {
-namespace {
 
-/// Every use of Alloca reads or writes the slot directly: its address is not
-/// stored or passed anywhere, so only the loads and stores we see touch it.
 bool isPrivateSlot(cir::AllocaOp Alloca) {
   for (mlir::Operation *User : Alloca->getUsers()) {
     if (mlir::isa<cir::LoadOp>(User))
@@ -16,6 +13,8 @@ bool isPrivateSlot(cir::AllocaOp Alloca) {
   }
   return true;
 }
+
+namespace {
 
 bool isStoredIn(mlir::Region &Region, mlir::Value Addr) {
   return Region

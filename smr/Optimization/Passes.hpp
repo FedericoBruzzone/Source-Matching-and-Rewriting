@@ -2,7 +2,9 @@
 
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
+#include "llvm/ADT/ArrayRef.h"
 #include <memory>
+#include <string>
 
 namespace optimization {
 
@@ -11,6 +13,11 @@ std::unique_ptr<mlir::Pass> createUnrollPass(unsigned Factor);
 
 /// Tiles the cir.for loops of a function with tiles of Size iterations.
 std::unique_ptr<mlir::Pass> createTilingPass(unsigned Size);
+
+/// Hoists loop invariant code out of the cir.for loops of a function. Calls to
+/// the functions in PureFunctions are hoisted too.
+std::unique_ptr<mlir::Pass>
+createLICMPass(llvm::ArrayRef<std::string> PureFunctions = {});
 
 /// Adds the passes of dce.
 void addDCEPasses(mlir::OpPassManager &PM);

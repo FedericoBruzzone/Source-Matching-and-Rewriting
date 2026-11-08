@@ -59,6 +59,9 @@ int Manager::run(mlir::ModuleOp Module,
       PM.addPass(createTilingPass(*Size));
       break;
     }
+    case LICM:
+      PM.addPass(createLICMPass(OptSpec.Args));
+      break;
     case DCE:
       addDCEPasses(PM);
       break;
