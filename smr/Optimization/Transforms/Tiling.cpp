@@ -8,11 +8,7 @@
 namespace optimization {
 namespace {
 
-mlir::Type getCountType(mlir::MLIRContext *Context) {
-  return cir::IntType::get(Context, 64, false);
-}
-
-/// A slot at the start of the function, for the counters and the tile starts.
+/// A slot at the start of the function, for the start of a tile.
 cir::AllocaOp createSlot(mlir::IRRewriter &Rewriter, cir::ForOp Loop,
                          mlir::Type Type, llvm::StringRef Name) {
   mlir::OpBuilder::InsertionGuard Guard(Rewriter);
@@ -29,46 +25,83 @@ mlir::Value load(mlir::OpBuilder &Builder, mlir::Location Loc,
                              Slot.getResult());
 }
 
-void storeCount(mlir::OpBuilder &Builder, mlir::Location Loc, int64_t Value,
-                cir::AllocaOp Count) {
-  auto Constant = cir::ConstantOp::create(
-      Builder, Loc,
-      cir::IntAttr::get(getCountType(Builder.getContext()), Value));
-  cir::StoreOp::create(Builder, Loc, Constant, Count);
+/// Clones the operations that compute Value inside Home, which is a block that
+/// does not dominate the insertion point, and returns the clone of Value.
+mlir::Value cloneValue(mlir::OpBuilder &Builder, mlir::Value Value,
+                       mlir::Block *Home, mlir::IRMapping &Mapping) {
+  mlir::Operation *Def = Value.getDefiningOp();
+  if (!Def || Def->getBlock() != Home)
+    return Value;
+  if (Mapping.contains(Value))
+    return Mapping.lookup(Value);
+  for (mlir::Value Operand : Def->getOperands())
+    cloneValue(Builder, Operand, Home, Mapping);
+  Builder.clone(*Def, Mapping);
+  return Mapping.lookup(Value);
 }
 
-/// Makes Loop stop after Size iterations, counted in Count. The code that
-/// starts a tile resets Count.
-void limitTile(mlir::IRRewriter &Rewriter, cir::ForOp Loop, cir::AllocaOp Count,
-               unsigned Size) {
-  mlir::Location Loc = Loop.getLoc();
-  mlir::Type CountType = Count.getAllocaType();
-  auto Constant = [&](int64_t Value) {
-    return cir::ConstantOp::create(Rewriter, Loc,
-                                   cir::IntAttr::get(CountType, Value));
+/// The IV values a tile covers: Size * step of them.
+int64_t getSpan(const CanonicalLoop &Loop, unsigned Size) {
+  return static_cast<int64_t>(Size) * Loop.Step;
+}
+
+/// The span fits in the IV type, so that the end of a tile can be computed.
+bool spanFits(CanonicalLoop Loop, unsigned Size) {
+  unsigned Width = mlir::cast<cir::IntType>(Loop.IV.getAllocaType()).getWidth();
+  return Width > 62 || getSpan(Loop, Size) < (int64_t(1) << (Width - 1));
+}
+
+/// The value the IV of Loop stays below (at or below for <=) in the tile that
+/// starts at its current value, which is the smaller of the bound and the span
+/// further on:
+///
+///   end = (ub - iv > span) ? iv + span : ub
+///
+/// The difference is taken as an unsigned number, so it is exact whenever the
+/// loop has an iteration left, and iv + span is only used when it is below ub:
+/// nothing overflows, whatever the bound is.
+mlir::Value computeTileEnd(mlir::OpBuilder &Builder, mlir::Location Loc,
+                           CanonicalLoop Loop, unsigned Size) {
+  auto IVType = mlir::cast<cir::IntType>(Loop.IV.getAllocaType());
+  auto UnsignedType =
+      cir::IntType::get(Builder.getContext(), IVType.getWidth(), false);
+  bool Less = Loop.Pred == cir::CmpOpKind::lt;
+  int64_t Span = getSpan(Loop, Size);
+
+  mlir::Value Start = load(Builder, Loc, Loop.IV);
+  mlir::IRMapping Mapping;
+  mlir::Value Bound = cloneValue(Builder, Loop.UpperBound,
+                                 &Loop.Loop.getCond().front(), Mapping);
+  auto AsUnsigned = [&](mlir::Value Value) -> mlir::Value {
+    if (Value.getType() == UnsignedType)
+      return Value;
+    return cir::CastOp::create(Builder, Loc, UnsignedType,
+                               cir::CastKind::integral, Value);
   };
+  mlir::Value Distance =
+      cir::BinOp::create(Builder, Loc, UnsignedType, cir::BinOpKind::Sub,
+                         AsUnsigned(Bound), AsUnsigned(Start));
+  mlir::Value SpanValue = cir::ConstantOp::create(
+      Builder, Loc, cir::IntAttr::get(UnsignedType, Span));
+  mlir::Value More = cir::CmpOp::create(
+      Builder, Loc, cir::BoolType::get(Builder.getContext()),
+      Less ? cir::CmpOpKind::gt : cir::CmpOpKind::ge, Distance, SpanValue);
+  mlir::Value Last = cir::ConstantOp::create(
+      Builder, Loc, cir::IntAttr::get(IVType, Less ? Span : Span - 1));
+  mlir::Value Next = cir::BinOp::create(Builder, Loc, IVType,
+                                        cir::BinOpKind::Add, Start, Last);
+  return cir::SelectOp::create(Builder, Loc, More, Next, Bound);
+}
 
-  // Cond: also stop when the tile is full.
+/// Makes Loop stop at End, the end of its tile, instead of at its bound.
+void limitTile(mlir::IRRewriter &Rewriter, CanonicalLoop Loop,
+               mlir::Value End) {
   auto Condition =
-      mlir::cast<cir::ConditionOp>(Loop.getCond().front().getTerminator());
-  Rewriter.setInsertionPoint(Condition);
-  auto Done = load(Rewriter, Loc, Count);
-  auto Room =
-      cir::CmpOp::create(Rewriter, Loc, cir::BoolType::get(Loop.getContext()),
-                         cir::CmpOpKind::lt, Done, Constant(Size));
-  auto False = cir::ConstantOp::create(
-      Rewriter, Loc, cir::BoolAttr::get(Loop.getContext(), false));
-  auto Both = cir::SelectOp::create(Rewriter, Loc, Condition.getCondition(),
-                                    Room, False);
-  Rewriter.modifyOpInPlace(
-      Condition, [&] { Condition.getConditionMutable().assign(Both); });
-
-  // Step: ++n.
-  Rewriter.setInsertionPoint(Loop.getStep().front().getTerminator());
-  auto Taken = load(Rewriter, Loc, Count);
-  auto Next = cir::BinOp::create(Rewriter, Loc, CountType, cir::BinOpKind::Add,
-                                 Taken, Constant(1));
-  cir::StoreOp::create(Rewriter, Loc, Next, Count);
+      mlir::cast<cir::ConditionOp>(Loop.Loop.getCond().front().getTerminator());
+  auto Cmp = Condition.getCondition().getDefiningOp<cir::CmpOp>();
+  for (unsigned N = 0; N < Cmp->getNumOperands(); ++N)
+    if (Cmp->getOperand(N) == Loop.UpperBound)
+      Rewriter.modifyOpInPlace(Cmp, [&] { Cmp->setOperand(N, End); });
 }
 
 void cloneCond(mlir::OpBuilder &Builder, cir::ForOp Loop) {
@@ -84,19 +117,17 @@ void cloneCond(mlir::OpBuilder &Builder, cir::ForOp Loop) {
 /// becomes
 ///
 ///   for (; iv < ub;) {
-///     n = 0;
-///     for (; iv < ub && n < Size; iv += s, ++n) body
+///     end = (ub - iv > Size * s) ? iv + Size * s : ub;
+///     for (; iv < end; iv += s) body
 ///   }
 ///
 /// The IV lives in memory, so every tile continues where the previous one
-/// stopped. Counting the iterations of a tile in n, instead of bounding the IV
-/// by iv + Size * s, cannot overflow.
+/// stopped.
 void stripMine(CanonicalLoop Loop, unsigned Size) {
   cir::ForOp Inner = Loop.Loop;
   mlir::IRRewriter Rewriter(Inner.getContext());
   mlir::Location Loc = Inner.getLoc();
-  cir::AllocaOp Count =
-      createSlot(Rewriter, Inner, getCountType(Inner.getContext()), "tile");
+  mlir::Value End;
 
   Rewriter.setInsertionPoint(Inner);
   auto Outer = cir::ForOp::create(
@@ -105,75 +136,165 @@ void stripMine(CanonicalLoop Loop, unsigned Size) {
         cloneCond(Builder, Inner);
       },
       [&](mlir::OpBuilder &Builder, mlir::Location Loc) {
-        storeCount(Builder, Loc, 0, Count);
+        End = computeTileEnd(Builder, Loc, Loop, Size);
         cir::YieldOp::create(Builder, Loc);
       },
       [&](mlir::OpBuilder &Builder, mlir::Location Loc) {
         cir::YieldOp::create(Builder, Loc);
       });
   Inner->moveBefore(Outer.getBody().front().getTerminator());
-  limitTile(Rewriter, Inner, Count, Size);
+  limitTile(Rewriter, Loop, End);
 }
 
-/// Scope is an operation or a region.
-template <typename Scope> bool readsSlot(Scope &Op, cir::AllocaOp Slot) {
-  return Op
-      .walk([&](cir::LoadOp Load) {
-        return Load.getAddr() == Slot.getResult()
-                   ? mlir::WalkResult::interrupt()
-                   : mlir::WalkResult::advance();
+using LocalSlots = llvm::SmallPtrSet<mlir::Operation *, 16>;
+
+/// Moves the allocas declared inside loops to the start of the function and
+/// replaces the scopes inside loops by their contents, so that a loop body is
+/// the statements it holds. Local collects the slots that were declared inside
+/// a loop: the statements of the body may write them, since they start every
+/// iteration without a value.
+void normalizeLoops(cir::FuncOp Func, LocalSlots &Local) {
+  mlir::Block &Entry = Func.getBody().front();
+  llvm::SmallVector<cir::AllocaOp> Allocas;
+  Func.walk([&](cir::AllocaOp Alloca) {
+    if (Alloca->getParentOfType<cir::ForOp>() && !Alloca.getDynAllocSize())
+      Allocas.push_back(Alloca);
+  });
+  for (cir::AllocaOp Alloca : Allocas) {
+    Local.insert(Alloca);
+    Alloca->moveBefore(&Entry, Entry.begin());
+  }
+
+  llvm::SmallVector<cir::ScopeOp> Scopes;
+  Func.walk([&](cir::ScopeOp Scope) {
+    if (Scope->getParentOfType<cir::ForOp>())
+      Scopes.push_back(Scope);
+  });
+  for (cir::ScopeOp Scope : Scopes) {
+    if (Scope->getNumResults() != 0 || !Scope.getScopeRegion().hasOneBlock())
+      continue;
+    mlir::Block &Block = Scope.getScopeRegion().front();
+    auto Yield = mlir::dyn_cast<cir::YieldOp>(Block.getTerminator());
+    if (!Yield || Yield->getNumOperands() != 0 ||
+        !Block.getOps<cir::AllocaOp>().empty())
+      continue;
+    Yield->erase();
+    Scope->getBlock()->getOperations().splice(Scope->getIterator(),
+                                              Block.getOperations());
+    Scope->erase();
+  }
+}
+
+bool isStoredIn(mlir::Operation *Scope, mlir::Value Slot) {
+  return Scope
+      ->walk([&](cir::StoreOp Store) {
+        return Store.getAddr() == Slot ? mlir::WalkResult::interrupt()
+                                       : mlir::WalkResult::advance();
       })
       .wasInterrupted();
 }
 
-/// The block holding the body of Outer, or the scope that clang opens in it
-/// for the variables the inner loop declares.
-mlir::Block *getNestBlock(cir::ForOp Outer) {
-  if (!Outer.getBody().hasOneBlock())
-    return nullptr;
-  mlir::Block &Body = Outer.getBody().front();
-  auto Scope = mlir::dyn_cast<cir::ScopeOp>(Body.front());
-  if (!Scope || Body.getOperations().size() != 2)
-    return &Body;
-  return Scope.getScopeRegion().hasOneBlock() ? &Scope.getScopeRegion().front()
-                                              : nullptr;
+bool isDefinedOutside(mlir::Value Value, mlir::Operation *Scope) {
+  mlir::Block *Block = Value.getParentBlock();
+  return !Scope->isAncestor(Block->getParentOp());
 }
 
-/// The canonical loop that is the whole body of Outer, apart from the
-/// declaration and the initialization of its IV. Its bounds do not depend on
-/// the IV of Outer, so the iteration space is a rectangle.
-std::optional<CanonicalLoop> matchPerfectNest(CanonicalLoop Outer) {
-  mlir::Block *Block = getNestBlock(Outer.Loop);
-  if (!Block)
+/// The condition of a loop that will run outside Scope: it only reads values
+/// defined outside Scope and slots Scope does not write, apart from its own IV.
+bool isCondInvariant(mlir::Region &Cond, mlir::Operation *Scope,
+                     cir::AllocaOp IV) {
+  return !Cond.walk([&](mlir::Operation *Op) {
+                for (mlir::Value Operand : Op->getOperands())
+                  if (!Cond.isAncestor(Operand.getParentRegion()) &&
+                      !isDefinedOutside(Operand, Scope))
+                    return mlir::WalkResult::interrupt();
+                if (auto Load = mlir::dyn_cast<cir::LoadOp>(Op)) {
+                  auto Slot = Load.getAddr().getDefiningOp<cir::AllocaOp>();
+                  if (Slot && Slot != IV && isStoredIn(Scope, Slot.getResult()))
+                    return mlir::WalkResult::interrupt();
+                }
+                return mlir::WalkResult::advance();
+              })
+              .wasInterrupted();
+}
+
+/// The value is computed from constants and slots Scope does not write.
+bool isSliceInvariant(mlir::Value Value, mlir::Operation *Scope) {
+  mlir::Operation *Def = Value.getDefiningOp();
+  if (!Def || isDefinedOutside(Value, Scope) || mlir::isa<cir::ConstantOp>(Def))
+    return true;
+  if (auto Load = mlir::dyn_cast<cir::LoadOp>(Def)) {
+    auto Slot = Load.getAddr().getDefiningOp<cir::AllocaOp>();
+    return Slot && !isStoredIn(Scope, Slot.getResult());
+  }
+  if (!mlir::isa<cir::CastOp, cir::BinOp, cir::UnaryOp>(Def))
+    return false;
+  return llvm::all_of(Def->getOperands(), [&](mlir::Value Operand) {
+    return isSliceInvariant(Operand, Scope);
+  });
+}
+
+/// The canonical loop that ends the body of Outer, with a rectangular
+/// iteration space: its bounds do not depend on anything Outer writes. What
+/// comes before it in the body is the initialization of its IV, and, when
+/// Local is given, statements that only compute values and write slots local
+/// to the body, so that they can run again without changing what the loop
+/// computes.
+std::optional<CanonicalLoop> matchInner(CanonicalLoop Outer,
+                                        const LocalSlots *Local) {
+  if (!Outer.Loop.getBody().hasOneBlock())
     return std::nullopt;
+  mlir::Block &Body = Outer.Loop.getBody().front();
   auto Loop =
-      mlir::dyn_cast_or_null<cir::ForOp>(Block->getTerminator()->getPrevNode());
+      mlir::dyn_cast_or_null<cir::ForOp>(Body.getTerminator()->getPrevNode());
   if (!Loop)
     return std::nullopt;
   auto Inner = matchCanonicalLoop(Loop);
   if (!Inner || !Inner->LowerBound || Inner->IV == Outer.IV ||
-      readsSlot(Loop.getCond(), Outer.IV))
+      !isCondInvariant(Loop.getCond(), Outer.Loop, Inner->IV) ||
+      !isSliceInvariant(*Inner->LowerBound, Outer.Loop))
     return std::nullopt;
 
-  for (mlir::Operation &Op : Block->without_terminator()) {
+  for (mlir::Operation &Op : Body.without_terminator()) {
     if (&Op == Loop.getOperation())
       continue;
-    auto Store = mlir::dyn_cast<cir::StoreOp>(Op);
-    bool Init = Store ? Store.getAddr() == Inner->IV.getResult()
-                      : mlir::isa<cir::AllocaOp, cir::ConstantOp, cir::CastOp,
-                                  cir::LoadOp>(Op);
-    if (!Init || readsSlot(Op, Outer.IV))
+    bool Allowed;
+    if (auto Store = mlir::dyn_cast<cir::StoreOp>(Op))
+      Allowed = Store.getAddr() == Inner->IV.getResult() ||
+                (Local && Local->contains(Store.getAddr().getDefiningOp()));
+    else
+      Allowed = mlir::isa<cir::ConstantOp, cir::CastOp, cir::LoadOp>(Op) ||
+                (Local && mlir::isa<cir::BinOp, cir::UnaryOp, cir::PtrStrideOp,
+                                    cir::CmpOp, cir::SelectOp>(Op));
+    if (!Allowed)
       return std::nullopt;
   }
   return Inner;
 }
 
-/// Tiles a perfect nest in Size x Size blocks:
+/// The loop that holds Outer as its whole body, apart from the initialization
+/// of the IV of Outer.
+std::optional<CanonicalLoop> matchAbove(CanonicalLoop Outer) {
+  auto Parent = mlir::dyn_cast<cir::ForOp>(Outer.Loop->getParentOp());
+  if (!Parent || Outer.Loop->getParentRegion() != &Parent.getBody())
+    return std::nullopt;
+  auto Above = matchCanonicalLoop(Parent);
+  if (!Above)
+    return std::nullopt;
+  auto Match = matchInner(*Above, nullptr);
+  if (!Match || Match->Loop != Outer.Loop)
+    return std::nullopt;
+  return Above;
+}
+
+/// Tiles the two loops Outer and Inner in Size x Size blocks, where Inner ends
+/// the body of Outer. With
 ///
 ///   for (i = lbi; i < ubi; i += si)
 ///     for (j = lbj; j < ubj; j += sj) body
 ///
-/// becomes
+/// the nest becomes, writing end(x) for the end of the tile of x that starts
+/// at its current value (see computeTileEnd):
 ///
 ///   for (; i < ubi;) {
 ///     i0 = i;
@@ -181,88 +302,168 @@ std::optional<CanonicalLoop> matchPerfectNest(CanonicalLoop Outer) {
 ///     do {
 ///       j0 = j;
 ///       i = i0;
-///       n = 0;
-///       for (; i < ubi && n < Size; i += si, ++n) {
+///       endi = end(i);
+///       for (; i < endi; i += si) {
 ///         j = j0;
-///         m = 0;
-///         for (; j < ubj && m < Size; j += sj, ++m) body
+///         endj = end(j);
+///         for (; j < endj; j += sj) body
 ///       }
 ///     } while (j < ubj);
 ///   }
 ///
-/// The point loops are the original ones. Every pass over the j tiles restarts
-/// the i tile at i0, and leaves j at the start of the next j tile. The do loop
-/// runs once even when the j loop has no iterations, so i still advances.
+/// The point loops are the original ones, with a single comparison against the
+/// end of the tile, so the compiler can still vectorize them. Every pass over
+/// the j tiles restarts the i tile at i0, and leaves j at the start of the next
+/// j tile. The do loop runs once even when the j loop has no iterations, so i
+/// still advances.
 ///
-/// Tiling reorders the iterations of the nest, which is only valid when they
-/// can run in any order, as for the OpenMP tile directive. Nothing here checks
-/// it.
-void tile(CanonicalLoop Outer, CanonicalLoop Inner, unsigned Size) {
+/// When Above is given, a loop that holds Outer, it is not tiled and runs in
+/// full inside every pair of tiles, so Outer and Inner are the two inner loops
+/// of a three loop nest:
+///
+///   for (p = lbp; p < ubp; p += sp)
+///     for (k = lbk; k < ubk; k += sk) { stmts; for (j ...) body }
+///
+/// becomes
+///
+///   p = lbp;
+///   if (p < ubp) {
+///     k = lbk;
+///     for (; k < ubk;) {
+///       k0 = k; j = lbj;
+///       do {
+///         j0 = j;
+///         p = lbp;
+///         for (; p < ubp; p += sp) {
+///           k = k0; endk = end(k);
+///           for (; k < endk; k += sk) {
+///             stmts; j = j0; endj = end(j);
+///             for (; j < endj; j += sj) body
+///           }
+///         }
+///       } while (j < ubj);
+///     }
+///   }
+///
+/// The statements before the inner loop run again for every tile of j, which
+/// is fine because they only compute values and write slots local to the body.
+/// The if keeps the nest from running when the loop above has no iterations,
+/// since then k would never advance.
+///
+/// Tiling reorders the iterations of the nest, which is only valid when the
+/// pattern guarantees they can run in any order. Nothing here checks it.
+void tile(CanonicalLoop Outer, CanonicalLoop Inner,
+          std::optional<CanonicalLoop> Above, unsigned Size) {
   cir::ForOp I = Outer.Loop;
   cir::ForOp J = Inner.Loop;
+  mlir::Operation *Wrapped =
+      Above ? Above->Loop.getOperation() : I.getOperation();
   mlir::IRRewriter Rewriter(I.getContext());
   mlir::Location Loc = I.getLoc();
-  mlir::Type CountType = getCountType(I.getContext());
-  cir::AllocaOp CountI = createSlot(Rewriter, I, CountType, "tile.i");
-  cir::AllocaOp CountJ = createSlot(Rewriter, I, CountType, "tile.j");
   cir::AllocaOp StartI =
       createSlot(Rewriter, I, Outer.IV.getAllocaType(), "tile.start.i");
   cir::AllocaOp StartJ =
       createSlot(Rewriter, I, Inner.IV.getAllocaType(), "tile.start.j");
-  mlir::Block &Body = *J->getBlock();
+  mlir::Block &InnerBody = *J->getBlock();
+  mlir::Value EndI;
 
-  // The tile loop repeats the initialization of j, so the declaration of j
-  // cannot stay inside the scope of the point loop.
-  llvm::SmallVector<cir::AllocaOp> Declarations(Body.getOps<cir::AllocaOp>());
-  mlir::Block &Entry = I->getParentOfType<cir::FuncOp>().getBody().front();
-  for (cir::AllocaOp Declaration : Declarations)
-    Declaration->moveBefore(&Entry, Entry.begin());
+  auto BuildTiles = [&](mlir::OpBuilder &Builder) {
+    return cir::ForOp::create(
+        Builder, Loc,
+        [&](mlir::OpBuilder &Builder, mlir::Location) {
+          cloneCond(Builder, I);
+        },
+        [&](mlir::OpBuilder &Builder, mlir::Location Loc) {
+          cir::StoreOp::create(Builder, Loc, load(Builder, Loc, Outer.IV),
+                               StartI);
+          mlir::IRMapping Mapping;
+          cir::StoreOp::create(
+              Builder, Loc,
+              cloneValue(Builder, *Inner.LowerBound, &InnerBody, Mapping),
+              Inner.IV);
+          cir::DoWhileOp::create(
+              Builder, Loc,
+              [&](mlir::OpBuilder &Builder, mlir::Location) {
+                cloneCond(Builder, J);
+              },
+              [&](mlir::OpBuilder &Builder, mlir::Location Loc) {
+                cir::StoreOp::create(Builder, Loc, load(Builder, Loc, Inner.IV),
+                                     StartJ);
+                if (Above) {
+                  cir::StoreOp::create(Builder, Loc, *Above->LowerBound,
+                                       Above->IV);
+                } else {
+                  cir::StoreOp::create(Builder, Loc, load(Builder, Loc, StartI),
+                                       Outer.IV);
+                  EndI = computeTileEnd(Builder, Loc, Outer, Size);
+                }
+                cir::YieldOp::create(Builder, Loc);
+              });
+          cir::YieldOp::create(Builder, Loc);
+        },
+        [&](mlir::OpBuilder &Builder, mlir::Location Loc) {
+          cir::YieldOp::create(Builder, Loc);
+        });
+  };
 
-  Rewriter.setInsertionPoint(I);
-  auto Tiles = cir::ForOp::create(
-      Rewriter, Loc,
-      [&](mlir::OpBuilder &Builder, mlir::Location) { cloneCond(Builder, I); },
-      [&](mlir::OpBuilder &Builder, mlir::Location Loc) {
-        cir::StoreOp::create(Builder, Loc, load(Builder, Loc, Outer.IV),
-                             StartI);
-        mlir::IRMapping Mapping;
-        for (mlir::Operation &Op : Body.without_terminator())
-          if (&Op != J.getOperation())
-            Builder.clone(Op, Mapping);
-        cir::DoWhileOp::create(
-            Builder, Loc,
-            [&](mlir::OpBuilder &Builder, mlir::Location) {
-              cloneCond(Builder, J);
-            },
-            [&](mlir::OpBuilder &Builder, mlir::Location Loc) {
-              cir::StoreOp::create(Builder, Loc, load(Builder, Loc, Inner.IV),
-                                   StartJ);
-              cir::StoreOp::create(Builder, Loc, load(Builder, Loc, StartI),
-                                   Outer.IV);
-              storeCount(Builder, Loc, 0, CountI);
-              cir::YieldOp::create(Builder, Loc);
-            });
-        cir::YieldOp::create(Builder, Loc);
-      },
-      [&](mlir::OpBuilder &Builder, mlir::Location Loc) {
-        cir::YieldOp::create(Builder, Loc);
-      });
+  Rewriter.setInsertionPoint(Wrapped);
+  cir::ForOp Tiles;
+  if (Above) {
+    mlir::IRMapping Mapping;
+    for (mlir::Operation &Op :
+         Above->Loop.getCond().front().without_terminator())
+      Rewriter.clone(Op, Mapping);
+    auto Condition = mlir::cast<cir::ConditionOp>(
+        Above->Loop.getCond().front().getTerminator());
+    cir::IfOp::create(
+        Rewriter, Loc, Mapping.lookupOrDefault(Condition.getCondition()), false,
+        [&](mlir::OpBuilder &Builder, mlir::Location Loc) {
+          mlir::IRMapping Lower;
+          cir::StoreOp::create(
+              Builder, Loc,
+              cloneValue(Builder, *Outer.LowerBound, I->getBlock(), Lower),
+              Outer.IV);
+          Tiles = BuildTiles(Builder);
+          cir::YieldOp::create(Builder, Loc);
+        });
+  } else {
+    Tiles = BuildTiles(Rewriter);
+  }
   auto Blocks = mlir::cast<cir::DoWhileOp>(
       Tiles.getBody().front().getTerminator()->getPrevNode());
-  I->moveBefore(Blocks.getBody().front().getTerminator());
+  Wrapped->moveBefore(Blocks.getBody().front().getTerminator());
 
-  // The j point loop starts at the j tile.
-  auto Init = mlir::cast<cir::StoreOp>(*llvm::find_if(Body, [&](auto &Op) {
-    auto Store = mlir::dyn_cast<cir::StoreOp>(Op);
-    return Store && Store.getAddr() == Inner.IV.getResult();
-  }));
-  Rewriter.setInsertionPoint(Init);
-  storeCount(Rewriter, Loc, 0, CountJ);
-  auto Start = load(Rewriter, Loc, StartJ);
-  Rewriter.modifyOpInPlace(Init, [&] { Init.getValueMutable().assign(Start); });
+  auto FindInit = [](mlir::Block &Block, cir::AllocaOp IV, mlir::Value Lower) {
+    return mlir::cast<cir::StoreOp>(*llvm::find_if(Block, [&](auto &Op) {
+      auto Store = mlir::dyn_cast<cir::StoreOp>(Op);
+      return Store && Store.getAddr() == IV.getResult() &&
+             Store.getValue() == Lower;
+    }));
+  };
 
-  limitTile(Rewriter, I, CountI, Size);
-  limitTile(Rewriter, J, CountJ, Size);
+  // The point loop of Outer starts at its tile, when the loop above it runs
+  // in full.
+  if (Above) {
+    cir::StoreOp InitI = FindInit(*I->getBlock(), Outer.IV, *Outer.LowerBound);
+    Rewriter.setInsertionPoint(InitI);
+    auto StartOfI = load(Rewriter, Loc, StartI);
+    Rewriter.modifyOpInPlace(InitI,
+                             [&] { InitI.getValueMutable().assign(StartOfI); });
+    Rewriter.setInsertionPoint(I);
+    EndI = computeTileEnd(Rewriter, Loc, Outer, Size);
+  }
+
+  // So does the one of Inner, in the body of Outer.
+  cir::StoreOp InitJ = FindInit(InnerBody, Inner.IV, *Inner.LowerBound);
+  Rewriter.setInsertionPoint(InitJ);
+  auto StartOfJ = load(Rewriter, Loc, StartJ);
+  Rewriter.modifyOpInPlace(InitJ,
+                           [&] { InitJ.getValueMutable().assign(StartOfJ); });
+  Rewriter.setInsertionPoint(J);
+  mlir::Value EndJ = computeTileEnd(Rewriter, Loc, Inner, Size);
+
+  limitTile(Rewriter, Outer, EndI);
+  limitTile(Rewriter, Inner, EndJ);
 }
 
 struct TilingPass
@@ -283,29 +484,39 @@ struct TilingPass
     if (Size <= 1)
       return;
 
-    // The two outermost loops of every perfect nest are tiled together. The
-    // other innermost loops are strip-mined.
-    llvm::SmallVector<std::pair<CanonicalLoop, CanonicalLoop>> Nests;
+    LocalSlots Local;
+    normalizeLoops(getOperation(), Local);
+
+    // The two innermost loops of every nest are tiled together, with the loop
+    // above them, if there is one, left whole inside the tiles. The other
+    // innermost loops are strip-mined.
+    struct Nest {
+      CanonicalLoop Outer, Inner;
+      std::optional<CanonicalLoop> Above;
+    };
+    llvm::SmallVector<Nest> Nests;
     llvm::SmallPtrSet<mlir::Operation *, 8> Tiled;
-    getOperation().walk<mlir::WalkOrder::PreOrder>([&](cir::ForOp For) {
-      if (Tiled.contains(For))
-        return;
+    getOperation().walk([&](cir::ForOp For) {
       auto Outer = matchCanonicalLoop(For);
-      auto Inner = Outer ? matchPerfectNest(*Outer) : std::nullopt;
-      if (!Inner || (isSmall(*Outer) && isSmall(*Inner)))
+      auto Inner = Outer ? matchInner(*Outer, &Local) : std::nullopt;
+      if (!Inner || matchInner(*Inner, &Local) || !spanFits(*Outer, Size) ||
+          !spanFits(*Inner, Size) || (isSmall(*Outer) && isSmall(*Inner)))
         return;
-      Nests.emplace_back(*Outer, *Inner);
-      Tiled.insert(For);
+      auto Above = matchAbove(*Outer);
+      Nests.push_back({*Outer, *Inner, Above});
+      Tiled.insert(Outer->Loop);
       Tiled.insert(Inner->Loop);
+      if (Above)
+        Tiled.insert(Above->Loop);
     });
 
     llvm::SmallVector<CanonicalLoop> Strips;
     for (CanonicalLoop &Loop : getInnermostCanonicalLoops(getOperation()))
-      if (!Tiled.contains(Loop.Loop) && !isSmall(Loop))
+      if (!Tiled.contains(Loop.Loop) && !isSmall(Loop) && spanFits(Loop, Size))
         Strips.push_back(Loop);
 
-    for (auto &[Outer, Inner] : Nests)
-      tile(Outer, Inner, Size);
+    for (Nest &N : Nests)
+      tile(N.Outer, N.Inner, N.Above, Size);
     for (CanonicalLoop &Loop : Strips)
       stripMine(Loop, Size);
   }
