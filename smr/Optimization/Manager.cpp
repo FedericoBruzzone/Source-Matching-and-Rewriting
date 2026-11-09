@@ -27,6 +27,13 @@ int Manager::run(mlir::ModuleOp Module,
   mlir::PassManager PM(Module.getContext(), mlir::ModuleOp::getOperationName(),
                        mlir::OpPassManager::Nesting::Implicit);
 
+  // The directives that transform loops report how many they changed.
+  std::vector<std::pair<std::string, std::unique_ptr<ChangeCounter>>> Counters;
+  auto NewCounter = [&](const std::string &Name) {
+    Counters.emplace_back(Name, std::make_unique<ChangeCounter>(0));
+    return Counters.back().second.get();
+  };
+
   for (const auto &OptSpec : Opts) {
     std::string OptName = Optimization::getName(OptSpec.Code);
 
@@ -49,18 +56,18 @@ int Manager::run(mlir::ModuleOp Module,
       auto Factor = getUnsignedArg(OptSpec, 4);
       if (!Factor)
         return 1;
-      PM.addPass(createUnrollPass(*Factor));
+      PM.addPass(createUnrollPass(*Factor, NewCounter(OptName)));
       break;
     }
     case TILING: {
       auto Size = getUnsignedArg(OptSpec, 32);
       if (!Size)
         return 1;
-      PM.addPass(createTilingPass(*Size));
+      PM.addPass(createTilingPass(*Size, NewCounter(OptName)));
       break;
     }
     case LICM:
-      PM.addPass(createLICMPass(OptSpec.Args));
+      PM.addPass(createLICMPass(OptSpec.Args, NewCounter(OptName)));
       break;
     case DCE:
       addDCEPasses(PM);
@@ -82,6 +89,10 @@ int Manager::run(mlir::ModuleOp Module,
     error(Msg::OPTIMIZATION_FAILED);
     return 1;
   }
+
+  for (const auto &[Name, Changed] : Counters)
+    if (*Changed == 0)
+      warn(Msg::OPTIMIZATION_NO_EFFECT, Name);
   return 0;
 }
 

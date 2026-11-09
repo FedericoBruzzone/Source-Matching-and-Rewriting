@@ -471,8 +471,11 @@ struct TilingPass
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TilingPass)
 
   TilingPass() = default;
-  TilingPass(const TilingPass &Other) : PassWrapper(Other) {}
-  explicit TilingPass(unsigned SizeValue) { Size = SizeValue; }
+  TilingPass(const TilingPass &Other)
+      : PassWrapper(Other), Changed(Other.Changed) {}
+  TilingPass(unsigned SizeValue, ChangeCounter *Counter) : Changed(Counter) {
+    Size = SizeValue;
+  }
 
   llvm::StringRef getArgument() const final { return "smr-tiling"; }
   llvm::StringRef getDescription() const final {
@@ -519,7 +522,11 @@ struct TilingPass
       tile(N.Outer, N.Inner, N.Above, Size);
     for (CanonicalLoop &Loop : Strips)
       stripMine(Loop, Size);
+    if (Changed)
+      *Changed += Nests.size() + Strips.size();
   }
+
+  ChangeCounter *Changed = nullptr;
 
   /// The loop runs in at most one tile.
   bool isSmall(const CanonicalLoop &Loop) const {
@@ -533,8 +540,9 @@ struct TilingPass
 
 } // namespace
 
-std::unique_ptr<mlir::Pass> createTilingPass(unsigned Size) {
-  return std::make_unique<TilingPass>(Size);
+std::unique_ptr<mlir::Pass> createTilingPass(unsigned Size,
+                                             ChangeCounter *Changed) {
+  return std::make_unique<TilingPass>(Size, Changed);
 }
 
 void registerTilingPass() { mlir::PassRegistration<TilingPass>(); }

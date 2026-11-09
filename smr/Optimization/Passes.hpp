@@ -3,21 +3,30 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "llvm/ADT/ArrayRef.h"
+#include <atomic>
 #include <memory>
 #include <string>
 
 namespace optimization {
 
+/// What a pass changed, summed over the functions it runs on. A pass created
+/// with a counter adds one for each loop it transforms (or each operation it
+/// hoists), so the caller can tell a directive that found nothing to do.
+using ChangeCounter = std::atomic<unsigned>;
+
 /// Unrolls the innermost cir.for loops of a function by Factor.
-std::unique_ptr<mlir::Pass> createUnrollPass(unsigned Factor);
+std::unique_ptr<mlir::Pass> createUnrollPass(unsigned Factor,
+                                             ChangeCounter *Changed = nullptr);
 
 /// Tiles the cir.for loops of a function with tiles of Size iterations.
-std::unique_ptr<mlir::Pass> createTilingPass(unsigned Size);
+std::unique_ptr<mlir::Pass> createTilingPass(unsigned Size,
+                                             ChangeCounter *Changed = nullptr);
 
 /// Hoists loop invariant code out of the cir.for loops of a function. Calls to
 /// the functions in PureFunctions are hoisted too.
 std::unique_ptr<mlir::Pass>
-createLICMPass(llvm::ArrayRef<std::string> PureFunctions = {});
+createLICMPass(llvm::ArrayRef<std::string> PureFunctions = {},
+               ChangeCounter *Changed = nullptr);
 
 /// Adds the passes of dce.
 void addDCEPasses(mlir::OpPassManager &PM);

@@ -108,8 +108,10 @@ struct LICMPass
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(LICMPass)
 
   LICMPass() = default;
-  LICMPass(const LICMPass &Other) : PassWrapper(Other) {}
-  explicit LICMPass(llvm::ArrayRef<std::string> PureFunctions) {
+  LICMPass(const LICMPass &Other)
+      : PassWrapper(Other), Changed(Other.Changed) {}
+  LICMPass(llvm::ArrayRef<std::string> PureFunctions, ChangeCounter *Counter)
+      : Changed(Counter) {
     Pure = PureFunctions;
   }
 
@@ -124,9 +126,14 @@ struct LICMPass
       PureNames.insert(Name);
 
     // Inner loops first, so that what they leave behind can move again.
+    unsigned Hoisted = 0;
     getOperation().walk(
-        [&](cir::ForOp Loop) { Hoister(Loop, PureNames).run(); });
+        [&](cir::ForOp Loop) { Hoisted += Hoister(Loop, PureNames).run(); });
+    if (Changed)
+      *Changed += Hoisted;
   }
+
+  ChangeCounter *Changed = nullptr;
 
   ListOption<std::string> Pure{
       *this, "pure",
@@ -136,8 +143,9 @@ struct LICMPass
 } // namespace
 
 std::unique_ptr<mlir::Pass>
-createLICMPass(llvm::ArrayRef<std::string> PureFunctions) {
-  return std::make_unique<LICMPass>(PureFunctions);
+createLICMPass(llvm::ArrayRef<std::string> PureFunctions,
+               ChangeCounter *Changed) {
+  return std::make_unique<LICMPass>(PureFunctions, Changed);
 }
 
 void registerLICMPass() { mlir::PassRegistration<LICMPass>(); }

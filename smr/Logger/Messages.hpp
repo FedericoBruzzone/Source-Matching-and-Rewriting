@@ -55,6 +55,7 @@ enum Msg {
   GLOBAL_OPTIMIZATION,
   INVALID_OPTIMIZATION_ARG,
   OPTIMIZATION_NOT_IMPLEMENTED,
+  OPTIMIZATION_NO_EFFECT,
   OPTIMIZATION_FAILED
 };
 
@@ -126,5 +127,7 @@ const std::array<Message, 64> Messages = {{
      "integer."},
     {OPTIMIZATION_NOT_IMPLEMENTED,
      "Optimization '{0}' is not implemented, skipping it."},
+    {OPTIMIZATION_NO_EFFECT,
+     "Optimization '{0}' changed nothing: no loop it could transform."},
     {OPTIMIZATION_FAILED, "Optimization pipeline failed."}
 }};

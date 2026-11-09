@@ -100,8 +100,11 @@ struct UnrollPass
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(UnrollPass)
 
   UnrollPass() = default;
-  UnrollPass(const UnrollPass &Other) : PassWrapper(Other) {}
-  explicit UnrollPass(unsigned FactorValue) { Factor = FactorValue; }
+  UnrollPass(const UnrollPass &Other)
+      : PassWrapper(Other), Changed(Other.Changed) {}
+  UnrollPass(unsigned FactorValue, ChangeCounter *Counter) : Changed(Counter) {
+    Factor = FactorValue;
+  }
 
   llvm::StringRef getArgument() const final { return "smr-unroll"; }
   llvm::StringRef getDescription() const final {
@@ -112,9 +115,14 @@ struct UnrollPass
     if (Factor <= 1)
       return;
 
-    for (CanonicalLoop &Loop : getInnermostCanonicalLoops(getOperation()))
+    for (CanonicalLoop &Loop : getInnermostCanonicalLoops(getOperation())) {
       unroll(Loop, Factor);
+      if (Changed)
+        ++*Changed;
+    }
   }
+
+  ChangeCounter *Changed = nullptr;
 
   Option<unsigned> Factor{*this, "factor",
                           llvm::cl::desc("Number of copies of the body"),
@@ -123,8 +131,9 @@ struct UnrollPass
 
 } // namespace
 
-std::unique_ptr<mlir::Pass> createUnrollPass(unsigned Factor) {
-  return std::make_unique<UnrollPass>(Factor);
+std::unique_ptr<mlir::Pass> createUnrollPass(unsigned Factor,
+                                             ChangeCounter *Changed) {
+  return std::make_unique<UnrollPass>(Factor, Changed);
 }
 
 void registerUnrollPass() { mlir::PassRegistration<UnrollPass>(); }
