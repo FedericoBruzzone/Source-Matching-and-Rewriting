@@ -1,6 +1,6 @@
 $GLOBAL = [dce]
 
-$opts = [unroll(2), tiling, dce, inline, canonicalize, vectorize]
+$opts = [unroll(2), tiling, dce, canonicalize, vectorize]
 
 c {
 void dot(int n, double *x, double *y, double out)

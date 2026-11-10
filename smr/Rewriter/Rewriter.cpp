@@ -43,7 +43,8 @@ void copyProperties(mlir::Operation &Src, mlir::Operation *Dst) {
 } // namespace
 
 int Rewriter::injectDefinition(mlir::ModuleOp Input,
-                               mlir::ModuleOp Definition) {
+                               mlir::ModuleOp Definition,
+                               mlir::FunctionOpInterface WrapperFunc) {
   /**
    *  FIXME: this should be reviewed later. Some details, such as updating
    *         simbols in order to allow globals from different rewrites
@@ -51,6 +52,10 @@ int Rewriter::injectDefinition(mlir::ModuleOp Input,
    *         addressed.
    **/
   for (auto &Op : Definition.getBody()->getOperations()) {
+
+    if (WrapperFunc && &Op == WrapperFunc.getOperation())
+      continue;
+
     // Retrieve the operation symbol reference.
     auto Symbol = Op.getAttr("sym_name");
     auto SymbolName = getAttrValueAsString(&Symbol);
@@ -90,7 +95,7 @@ int Rewriter::replace(Rewrite &Rewrite) {
   if (!Func)
     return 1;
 
-  injectDefinition(Rewrite.getInput(), Rewrite.getReplacement());
+  injectDefinition(Rewrite.getInput(), Rewrite.getReplacement(), Func);
 
   // Prepare injection point (right before the target)
   auto Ip = OpBuilder.saveInsertionPoint();

@@ -1,5 +1,3 @@
-$GLOBAL = [inline]
-
 $routine_opt_1 = [unroll, dce]
 
 $routine_opt_2 = [tiling(32)]
