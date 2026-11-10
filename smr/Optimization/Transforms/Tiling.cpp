@@ -481,7 +481,7 @@ struct TilingPass
   }
 
   void runOnOperation() override {
-    if (Size <= 1)
+    if (Size <= 1 || getOperation().getBody().empty())
       return;
 
     LocalSlots Local;
