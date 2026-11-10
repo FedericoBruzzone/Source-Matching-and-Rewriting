@@ -31,6 +31,10 @@ struct CanonicalLoop {
   std::optional<int64_t> TripCount;
 };
 
+/// Every use of Alloca reads or writes the slot directly: its address is not
+/// stored or passed anywhere, so only the loads and stores we see touch it.
+bool isPrivateSlot(cir::AllocaOp Alloca);
+
 /// Recognizes Loop as a canonical loop. On failure, Reason (if given) says
 /// which condition does not hold.
 std::optional<CanonicalLoop> matchCanonicalLoop(cir::ForOp Loop,

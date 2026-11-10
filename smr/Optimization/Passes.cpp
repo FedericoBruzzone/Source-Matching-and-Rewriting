@@ -7,6 +7,7 @@ void registerUnrollPass();
 void registerTilingPass();
 void registerDCEPipeline();
 void registerInlinePass();
+void registerLICMPass();
 void registerCanonicalizePipeline();
 void registerTestCanonicalLoopsPass();
 
@@ -15,6 +16,7 @@ void registerSmrPasses() {
   registerTilingPass();
   registerDCEPipeline();
   registerInlinePass();
+  registerLICMPass();
   registerCanonicalizePipeline();
   registerTestCanonicalLoopsPass();
 }
