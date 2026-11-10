@@ -49,6 +49,8 @@ enum Msg {
   OVERLAPPING_ABORT,
   NESTED_MATCHES,
   CONDITION_EVAL_FAIL,
+  INCORRECT_GLOBAL_OPTIMIZATION,
+  INCORRECT_OPTIMIZATION,
   APPLYING_OPTIMIZATION,
   GLOBAL_OPTIMIZATION,
   INVALID_OPTIMIZATION_ARG,
@@ -115,6 +117,8 @@ const std::array<Message, 64> Messages = {{
     {NESTED_MATCHES, "Nested matches: rewrites {0} and {1} have nested "
                      "targets. Only one will be applied."},
     {CONDITION_EVAL_FAIL, "Condition evaluation failed for pattern {0}."},
+    {INCORRECT_GLOBAL_OPTIMIZATION, "Unknown global optimization directive: {0}"},
+    {INCORRECT_OPTIMIZATION, "Unknown optimization directive: {0}"},
     {APPLYING_OPTIMIZATION, "Applying optimization: {0}"},
     {GLOBAL_OPTIMIZATION, "Applying global optimization: {0}"},
     {INVALID_OPTIMIZATION_ARG,

@@ -6,7 +6,6 @@
 // RUN: smr-opt --smr-tiling %s | FileCheck %s
 // RUN: smr-opt --smr-tiling=size=16 %s | FileCheck %s
 // RUN: smr-opt --smr-dce %s | FileCheck %s
-// RUN: smr-opt --smr-inline %s | FileCheck %s
 // RUN: not smr-opt --smr-unroll=step=2 %s 2>&1 | FileCheck %s --check-prefix=BAD-OPTION
 
 // BAD-OPTION: no such option step

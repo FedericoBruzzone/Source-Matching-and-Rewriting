@@ -97,13 +97,17 @@ int loadAllFiles(Data &Data, cdg::CDG &Cdg, ddg::DDG &Ddg) {
     }
     // File is PAT: load and compile (if necessary) rewrites.
     else if (Filename.ends_with(".pat")) {
-      Result = loadPatFile(File, Data);
+      if (!cl::Compile)
+        Result = loadPatFile(File, Data);
+      else
+        warn(Msg::COMPILE_IGNORED, File);
     }
     // File is a serialized PAT: unserialize it.
     else if (Filename.ends_with(".opat") && cl::Serialize.empty()) {
       if (!cl::Compile)
         Result = loadObjectPatFile(File, Data, Cdg, Ddg);
-      warn(Msg::COMPILE_IGNORED, File);
+      else
+        warn(Msg::COMPILE_IGNORED, File);
     }
     // File is a supported source language: compiled and load it as input code.
     else if (frontend::Manager::supports(Filename) && cl::Serialize.empty()) {
@@ -182,8 +186,7 @@ int loadPatFile(std::string &Filepath, Data &Data) {
   // Register global optimizations from the PAT file into the Data object.
   for (const auto &OptSpec : Root->getGlobalOptimizations()) {
     if (!optimization::Optimization::isValid(OptSpec)) {
-      warn(Msg::UKN_FILE_TYPE, "Unknown global optimization directive: " +
-                                   std::string(optimization::Optimization::getName(OptSpec.Code)));
+      warn(Msg::INCORRECT_GLOBAL_OPTIMIZATION, std::string(optimization::Optimization::getName(OptSpec.Code)));
     }
   }
   Data.setGlobalOptimizations(Root->getGlobalOptimizations());
@@ -240,8 +243,7 @@ int loadPatFile(std::string &Filepath, Data &Data) {
       // Validate optimizations for the branch and add them to the Branch object.
       for (const auto &OptSpec : BranchAST->getOptimizations()) {
         if (!optimization::Optimization::isValid(OptSpec)) {
-          warn(Msg::UKN_FILE_TYPE, "Unknown optimization directive: " +
-                                       std::string(optimization::Optimization::getName(OptSpec.Code)));
+          warn(Msg::INCORRECT_OPTIMIZATION, std::string(optimization::Optimization::getName(OptSpec.Code)));
         }
         Branch.Optimizations.push_back(OptSpec);
       }

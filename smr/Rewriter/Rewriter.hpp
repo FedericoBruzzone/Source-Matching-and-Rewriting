@@ -22,9 +22,11 @@ private:
   ///
   /// \param input Target code to be incremented.
   /// \param definition Definition to be injected.
+  /// \param wrapperFunc Optional wrapper function to not be injected instead of the definition.
   ///
   /// \return Error code.
-  int injectDefinition(mlir::ModuleOp Input, mlir::ModuleOp Definition);
+  int injectDefinition(mlir::ModuleOp Input, mlir::ModuleOp Definition,
+                       mlir::FunctionOpInterface WrapperFunc = nullptr);
 
   /// \brief Mark every operation that uses a value that will be deleted.
   ///
