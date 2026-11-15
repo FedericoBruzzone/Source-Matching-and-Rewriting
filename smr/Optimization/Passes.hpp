@@ -28,6 +28,9 @@ std::unique_ptr<mlir::Pass>
 createLICMPass(llvm::ArrayRef<std::string> PureFunctions = {},
                ChangeCounter *Changed = nullptr);
 
+/// Fuses adjacent cir.for loops that run the same iterations.
+std::unique_ptr<mlir::Pass> createFusionPass(ChangeCounter *Changed = nullptr);
+
 /// Adds the passes of dce.
 void addDCEPasses(mlir::OpPassManager &PM);
 
