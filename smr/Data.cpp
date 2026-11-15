@@ -110,7 +110,8 @@ mlir::Operation *Data::getPatternRoot(int Idx) {
 
 mlir::Block *Data::getPatternEntryBlock(int Idx) {
   for (auto &Op : Patterns[Idx]->getOps()) {
-    if (auto Func = mlir::dyn_cast<mlir::FunctionOpInterface>(Op))
+    auto Func = mlir::dyn_cast<mlir::FunctionOpInterface>(Op);
+    if (Func && !Func.getFunctionBody().empty())
       return &Func.front();
   }
   return nullptr;
