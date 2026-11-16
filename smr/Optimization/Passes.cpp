@@ -5,6 +5,7 @@ namespace optimization {
 // Defined next to each pass, which is local to its file.
 void registerUnrollPass();
 void registerTilingPass();
+void registerFusionPass();
 void registerDCEPipeline();
 void registerInlinePass();
 void registerLICMPass();
@@ -20,6 +21,7 @@ void registerVectorizePass();
 void registerSmrPasses() {
   registerUnrollPass();
   registerTilingPass();
+  registerFusionPass();
   registerDCEPipeline();
   registerInlinePass();
   registerLICMPass();

@@ -93,6 +93,9 @@ int Manager::run(mlir::ModuleOp Module,
     case FAST_MATH:
       PM.addPass(createFastMathPass(NewCounter(OptName)));
       break;
+    case FUSION:
+      PM.addPass(createFusionPass(NewCounter(OptName)));
+      break;
     case VECTORIZE:
       PM.addPass(createVectorizePass(NewCounter(OptName)));
       break;
