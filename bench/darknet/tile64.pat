@@ -1,0 +1,1 @@
+$GLOBAL = [tiling(64)]
