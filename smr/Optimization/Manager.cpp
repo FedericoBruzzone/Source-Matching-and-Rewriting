@@ -3,6 +3,7 @@
 #include "Logger/Messages.hpp"
 #include "Passes.hpp"
 #include "mlir/Pass/PassManager.h"
+#include "llvm/Support/MathExtras.h"
 
 namespace optimization {
 
@@ -19,6 +20,38 @@ static std::optional<unsigned> getUnsignedArg(const OptimizationSpec &Spec,
     return std::nullopt;
   }
   return Value;
+}
+
+/// Reads the options of vectorize, written as in smr-opt: vf=4, ic=1,
+/// assume-no-alias=false. Returns false after reporting a bad one.
+static bool getVectorizeOptions(const OptimizationSpec &Spec, unsigned &VF,
+                                unsigned &IC, bool &AssumeNoAlias) {
+  VF = 8;
+  IC = 2;
+  AssumeNoAlias = true;
+  for (const std::string &Arg : Spec.Args) {
+    auto [Key, Value] = llvm::StringRef(Arg).split('=');
+    Key = Key.trim();
+    Value = Value.trim();
+    bool Ok = false;
+    if (Key == "vf") {
+      // A power of two, the vectors are aligned to vf times the element size.
+      Ok = !Value.getAsInteger(10, VF) && VF >= 2 && llvm::isPowerOf2_32(VF);
+    } else if (Key == "ic") {
+      Ok = !Value.getAsInteger(10, IC) && IC >= 1;
+    } else if (Key == "assume-no-alias") {
+      Ok = Value == "true" || Value == "false";
+      AssumeNoAlias = Value == "true";
+    }
+    if (!Ok) {
+      error(Msg::INVALID_OPTIMIZATION_OPTION, Optimization::getName(Spec.Code),
+            Arg,
+            "vf=N (a power of two, at least 2), ic=N (at least 1) or "
+            "assume-no-alias=true|false");
+      return false;
+    }
+  }
+  return true;
 }
 
 int Manager::run(mlir::ModuleOp Module,
@@ -96,9 +129,15 @@ int Manager::run(mlir::ModuleOp Module,
     case FUSION:
       PM.addPass(createFusionPass(NewCounter(OptName)));
       break;
-    case VECTORIZE:
-      PM.addPass(createVectorizePass(NewCounter(OptName)));
+    case VECTORIZE: {
+      unsigned VF, IC;
+      bool AssumeNoAlias;
+      if (!getVectorizeOptions(OptSpec, VF, IC, AssumeNoAlias))
+        return 1;
+      PM.addPass(
+          createVectorizePass(VF, IC, AssumeNoAlias, NewCounter(OptName)));
       break;
+    }
     case UNKNOWN:
       warn(Msg::OPTIMIZATION_NOT_IMPLEMENTED, OptName);
       break;
