@@ -54,6 +54,7 @@ enum Msg {
   APPLYING_OPTIMIZATION,
   GLOBAL_OPTIMIZATION,
   INVALID_OPTIMIZATION_ARG,
+  INVALID_OPTIMIZATION_OPTION,
   OPTIMIZATION_NOT_IMPLEMENTED,
   OPTIMIZATION_NO_EFFECT,
   OPTIMIZATION_FAILED
@@ -125,6 +126,8 @@ const std::array<Message, 64> Messages = {{
     {INVALID_OPTIMIZATION_ARG,
      "Invalid argument '{1}' for optimization '{0}': expected a positive "
      "integer."},
+    {INVALID_OPTIMIZATION_OPTION,
+     "Invalid option '{1}' for optimization '{0}': expected {2}."},
     {OPTIMIZATION_NOT_IMPLEMENTED,
      "Optimization '{0}' is not implemented, skipping it."},
     {OPTIMIZATION_NO_EFFECT,

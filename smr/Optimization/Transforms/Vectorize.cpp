@@ -599,9 +599,19 @@ struct VectorizePass
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(VectorizePass)
 
   VectorizePass() = default;
+  // The pass manager clones passes and does not copy their options.
   VectorizePass(const VectorizePass &Other)
-      : PassWrapper(Other), Changed(Other.Changed) {}
-  explicit VectorizePass(ChangeCounter *Counter) : Changed(Counter) {}
+      : PassWrapper(Other), Changed(Other.Changed) {
+    VectorWidth = Other.VectorWidth.getValue();
+    InterleaveCount = Other.InterleaveCount.getValue();
+    AssumeNoAlias = Other.AssumeNoAlias.getValue();
+  }
+  VectorizePass(unsigned VF, unsigned IC, bool NoAlias, ChangeCounter *Counter)
+      : Changed(Counter) {
+    VectorWidth = VF;
+    InterleaveCount = IC;
+    AssumeNoAlias = NoAlias;
+  }
 
   llvm::StringRef getArgument() const final { return "smr-vectorize"; }
   llvm::StringRef getDescription() const final {
@@ -645,8 +655,10 @@ struct VectorizePass
 
 } // namespace
 
-std::unique_ptr<mlir::Pass> createVectorizePass(ChangeCounter *Changed) {
-  return std::make_unique<VectorizePass>(Changed);
+std::unique_ptr<mlir::Pass> createVectorizePass(unsigned VF, unsigned IC,
+                                                bool AssumeNoAlias,
+                                                ChangeCounter *Changed) {
+  return std::make_unique<VectorizePass>(VF, IC, AssumeNoAlias, Changed);
 }
 
 void registerVectorizePass() { mlir::PassRegistration<VectorizePass>(); }
