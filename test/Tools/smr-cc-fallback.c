@@ -1,4 +1,4 @@
-// A translation unit smr cannot handle (inline asm) is compiled by plain clang
+// A translation unit smr cannot handle (a computed goto) is compiled by plain clang
 // instead, and the log says so. With SMR_CC_ALL it is clang -fclangir.
 //
 // RUN: rm -f %t.log %t.all.log
@@ -18,8 +18,12 @@
 #include <stdio.h>
 
 int f(int x) {
-  asm volatile("nop");
+  void *target = x ? &&next : &&other;
+  goto *target;
+next:
   return x + 1;
+other:
+  return 0;
 }
 
 int main(void) {

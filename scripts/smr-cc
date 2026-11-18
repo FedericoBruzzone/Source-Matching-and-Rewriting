@@ -84,8 +84,12 @@ smr "$work/$name.c" $SMR_PATS -o "$work/$name.mlir" > "$work/smr.log" 2>&1 ||
 [ -n "$SMR_CC_ALL" ] ||
   grep -q "Applying rewrite\|Applying optimization" "$work/smr.log" || skip
 
-cir-translate --cir-to-llvmir "$work/$name.mlir" -o "$work/$name.ll" 2> "$work/err" ||
+cir-translate --cir-to-llvmir "$work/$name.mlir" -o "$work/$name.cir.ll" 2> "$work/err" ||
   fallback "cir-translate failed"
+
+# The data layout cir-translate writes is not the one of the target, and the
+# backend rejects it. Without it clang uses the one of the target.
+sed '/^target datalayout/d' "$work/$name.cir.ll" > "$work/$name.ll"
 
 "$CLANG" -Wno-unused-command-line-argument "${backend[@]}" -c "$work/$name.ll" \
   -o "$output" 2> "$work/err" || fallback "clang failed on the LLVM IR"
